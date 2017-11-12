@@ -347,7 +347,7 @@ func (p passwd) exec(c net.Conn, id uint32) error {
 		Value passwd
 	}{p}
 	e := struct {
-		Name  string `ber:"context,tag:0"`
+		Name  string      `ber:"context,tag:0"`
 		Value interface{} `ber:"context,tag:1"`
 	}{pwdOID, v}
 	m := struct {
