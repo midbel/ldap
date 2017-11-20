@@ -61,6 +61,20 @@ func (e Entry) MarshalJSON() ([]byte, error) {
 }
 
 func (e Entry) MarshalXML(c *xml.Encoder, s xml.StartElement) error {
+	s.Name.Local = "entry"
+
+	c.EncodeToken(s)
+	c.EncodeElement(e.Node, xml.StartElement{Name: xml.Name{Local: "dn"}})
+	for a, vs := range e.Attrs {
+		s := xml.StartElement{Name: xml.Name{Local: "attr"}}
+		c.EncodeToken(s)
+		c.EncodeElement(a, xml.StartElement{Name: xml.Name{Local: "type"}})
+		for _, v := range vs {
+			c.EncodeElement(v, xml.StartElement{Name: xml.Name{Local: "value"}})
+		}
+		c.EncodeToken(xml.EndElement{s.Name})
+	}
+	c.EncodeToken(xml.EndElement{s.Name})
 	return nil
 }
 

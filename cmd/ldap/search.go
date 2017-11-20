@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/xml"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/midbel/ldap"
@@ -28,6 +31,7 @@ func Compare(cmd *cli.Command, args []string) error {
 }
 
 func Find(cmd *cli.Command, args []string) error {
+	format := cmd.Flag.String("f", "ldif", "")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -42,12 +46,11 @@ func Find(cmd *cli.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	ldif.PrintEntry(os.Stdout, e)
-
-	return nil
+	return printResults(os.Stdout, *format, []*ldap.Entry{e})
 }
 
 func List(cmd *cli.Command, args []string) error {
+	format := cmd.Flag.String("f", "ldif", "")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -66,7 +69,29 @@ func List(cmd *cli.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	ldif.PrintEntries(os.Stdout, es)
-	fmt.Fprintf(os.Stdout, "%d entries found\n", len(es))
+	return printResults(os.Stdout, *format, es)
+}
+
+func printResults(w io.Writer, f string, rs []*ldap.Entry) error {
+	var err error
+	switch f {
+	default:
+		return fmt.Errorf("unsupported format provided: %s", f)
+	case "ldif", "":
+		if len(rs) == 1 {
+			ldif.PrintEntry(w, rs[0])
+		} else {
+			ldif.PrintEntries(w, rs)
+			fmt.Fprintf(w, "%d entries found\n", len(rs))
+		}
+	case "xml":
+		e := xml.NewEncoder(w)
+		e.Indent("", "  ")
+		err = e.Encode(rs)
+	case "json":
+		e := json.NewEncoder(w)
+		e.SetIndent("", "  ")
+		err = e.Encode(rs)
+	}
 	return err
 }
