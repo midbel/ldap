@@ -7,7 +7,7 @@ import (
 	"os"
 
 	"github.com/midbel/ldap"
-	"github.com/midbel/rustine/cli"
+	"github.com/midbel/cli"
 )
 
 func Password(cmd *cli.Command, args []string) error {

@@ -1,15 +1,15 @@
 package main
 
 import (
-	"encoding/xml"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"os"
 
 	"github.com/midbel/ldap"
 	"github.com/midbel/ldap/cmd/ldap/internal/ldif"
-	"github.com/midbel/rustine/cli"
+	"github.com/midbel/cli"
 )
 
 func Compare(cmd *cli.Command, args []string) error {

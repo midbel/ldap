@@ -7,7 +7,7 @@ import (
 	"text/template"
 
 	"github.com/midbel/ldap"
-	"github.com/midbel/rustine/cli"
+	"github.com/midbel/cli"
 )
 
 var (

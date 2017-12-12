@@ -6,7 +6,7 @@ import (
 	"strings"
 	"text/scanner"
 
-	"github.com/midbel/rustine/encoding/ber"
+	"github.com/midbel/ber"
 )
 
 const (

@@ -15,7 +15,7 @@ import (
 
 	"github.com/midbel/ldap"
 	"github.com/midbel/ldap/cmd/ldap/internal/ldif"
-	"github.com/midbel/rustine/cli"
+	"github.com/midbel/cli"
 )
 
 func Serve(cmd *cli.Command, args []string) error {

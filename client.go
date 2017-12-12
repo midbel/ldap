@@ -8,7 +8,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/midbel/rustine/encoding/ber"
+	"github.com/midbel/ber"
 )
 
 var (
