@@ -7,9 +7,9 @@ import (
 	"io"
 	"os"
 
+	"github.com/midbel/cli"
 	"github.com/midbel/ldap"
 	"github.com/midbel/ldap/cmd/ldap/internal/ldif"
-	"github.com/midbel/cli"
 )
 
 func Compare(cmd *cli.Command, args []string) error {

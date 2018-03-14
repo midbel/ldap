@@ -6,8 +6,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/midbel/ldap"
 	"github.com/midbel/cli"
+	"github.com/midbel/ldap"
 )
 
 func Password(cmd *cli.Command, args []string) error {

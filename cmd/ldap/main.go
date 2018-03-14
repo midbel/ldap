@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"text/template"
 
-	"github.com/midbel/ldap"
 	"github.com/midbel/cli"
+	"github.com/midbel/ldap"
 )
 
 var (
