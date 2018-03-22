@@ -13,9 +13,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/midbel/cli"
 	"github.com/midbel/ldap"
 	"github.com/midbel/ldap/cmd/ldap/internal/ldif"
-	"github.com/midbel/rustine/cli"
 )
 
 func Serve(cmd *cli.Command, args []string) error {
