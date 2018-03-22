@@ -1,8 +1,8 @@
 package main
 
 import (
-	"encoding/xml"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"os"
