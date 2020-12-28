@@ -20,5 +20,14 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	c.Unbind()
+	defer c.Unbind()
+
+	es, err := c.Search(flag.Arg(1), ldap.WithScope(ldap.ScopeWhole))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+  for _, e := range es {
+    fmt.Fprintf(os.Stdout, "%+v\n", e)
+  }
 }

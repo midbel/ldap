@@ -87,27 +87,32 @@ var codestrings = map[int]string{
 }
 
 const (
-	bindRequest int = iota
-	bindResponse
-	unbindRequest
-	searchRequest
-	searchResEntry
-	searchResDone
-	searchResRef
-	modifyRequest
-	modifyResponse
-	addRequest
-	addResponse
-	delRequest
-	delResponse
-	modDNRequest
-	modDNResponse
-	cmpRequest
-	cmpResponse
-	abandonRequest
-	extendedRequest
-	extendedResponse
+	ldapBindRequest uint64 = iota
+	ldapBindResponse
+	ldapUnbindRequest
+	ldapSearchRequest
+	ldapSearchResEntry
+	ldapSearchResDone
+	ldapSearchResRef
+	ldapModifyRequest
+	ldapModifyResponse
+	ldapAddRequest
+	ldapAddResponse
+	ldapDelRequest
+	ldapDelResponse
+	ldapModDNRequest
+	ldapModDNResponse
+	ldapCmpRequest
+	ldapCmpResponse
+	ldapAbandonRequest
+	ldapExtendedRequest
+	ldapExtendedResponse
 )
+
+type Entry struct {
+	Name  string
+	Attrs map[string][]string
+}
 
 type Control struct {
 	oid      string

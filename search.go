@@ -39,68 +39,70 @@ const (
 	DerefAlways
 )
 
-type SearchRequest struct {
-	base  string
-	scope Scope
-	deref Deref
-	size  int
-	delay int
-	types bool
-	attrs []string
+type searchRequest struct {
+	Base   string `ber:"tag:0x4"`
+	Scope  Scope  `ber:"tag:0xa"`
+	Deref  Deref  `ber:"tag:0xa"`
+	Size   int
+	Delay  int
+	Types  bool
+	Filter Filter
+	Attrs  [][]byte
 }
 
-func (sr SearchRequest) Marshal() ([]byte, error) {
-	return nil, nil
-}
-
-type SearchOption func(*SearchRequest) error
+type SearchOption func(*searchRequest) error
 
 func WithScope(scope Scope) SearchOption {
-	return func(sr *SearchRequest) error {
+	return func(sr *searchRequest) error {
 		if !scope.isValid() {
 			return nil
 		}
-		sr.scope = scope
+		sr.Scope = scope
 		return nil
 	}
 }
 
 func WithAttributes(attrs []string) SearchOption {
-	return func(sr *SearchRequest) error {
-		sr.attrs = append(sr.attrs, attrs...)
+	return func(sr *searchRequest) error {
+		for _, a := range attrs {
+			if len(a) == 0 {
+				continue
+			}
+			sr.Attrs = append(sr.Attrs, []byte(a))
+		}
 		return nil
 	}
 }
 
 func WithLimit(limit int) SearchOption {
-	return func(sr *SearchRequest) error {
+	return func(sr *searchRequest) error {
 		if limit >= 0 {
-			sr.size = limit
+			sr.Size = limit
 		}
 		return nil
 	}
 }
 
 func WithTime(limit time.Duration) SearchOption {
-	return func(sr *SearchRequest) error {
-		sr.delay = int(limit.Seconds())
+	return func(sr *searchRequest) error {
+		sr.Delay = int(limit.Seconds())
 		return nil
 	}
 }
 
 func WithTypes(only bool) SearchOption {
-	return func(sr *SearchRequest) error {
-		sr.types = only
+	return func(sr *searchRequest) error {
+		sr.Types = only
 		return nil
 	}
 }
 
 func WithDeref(deref Deref) SearchOption {
-	return func(sr *SearchRequest) error {
+	return func(sr *searchRequest) error {
 		if !deref.isValid() {
 			return nil
 		}
-		sr.deref = deref
+		sr.Deref = deref
 		return nil
 	}
 }

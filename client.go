@@ -48,7 +48,7 @@ func (c *Client) Bind(user, passwd string) error {
 
 	var e ber.Encoder
 	e.EncodeInt(int64(c.msgid))
-	e.EncodeWithIdent(bind, ber.NewConstructed(bindRequest).Application())
+	e.EncodeWithIdent(bind, ber.NewConstructed(ldapBindRequest).Application())
 	body, err := e.AsSequence()
 	if err != nil {
 		return fmt.Errorf("%w: encoding bind operation failed!", err)
@@ -65,7 +65,7 @@ func (c *Client) Unbind() error {
 
 	var e ber.Encoder
 	e.EncodeInt(int64(c.msgid))
-	e.EncodeWithIdent(unbind, ber.NewConstructed(unbindRequest).Application())
+	e.EncodeWithIdent(unbind, ber.NewConstructed(ldapUnbindRequest).Application())
 	body, err := e.AsSequence()
 	if err != nil {
 		return fmt.Errorf("%w: encoding unbind operation failed!", err)
@@ -77,8 +77,36 @@ func (c *Client) Unbind() error {
 	return c.conn.Close()
 }
 
-func (c *Client) Search(base string, options ...SearchOption) error {
-	return nil
+func (c *Client) Search(base string, options ...SearchOption) ([]Entry, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.msgid++
+
+	search := searchRequest{
+		Base:   base,
+		Scope:  ScopeBase,
+		Deref:  DerefNever,
+		Filter: Present("objectClass"),
+	}
+	for _, opt := range options {
+		if err := opt(&search); err != nil {
+			return nil, err
+		}
+	}
+	if len(search.Attrs) == 0 {
+		search.Attrs = append(search.Attrs, []byte("*"))
+	}
+  fmt.Printf("%+v\n", search)
+
+	var e ber.Encoder
+	e.EncodeInt(int64(c.msgid))
+	e.EncodeWithIdent(search, ber.NewConstructed(ldapSearchRequest).Application())
+	body, err := e.AsSequence()
+	if err != nil {
+		return nil, err
+	}
+	return c.search(body)
 }
 
 func (c *Client) Modify(cdn string) error {
@@ -125,10 +153,57 @@ func (c *Client) recv(body []byte) error {
 	}{}
 	dec := ber.NewDecoder(body[:n])
 	if err := dec.Decode(&res); err != nil {
-		return fmt.Errorf("%w: decoding bind response failed!", err)
+		return fmt.Errorf("%w: decoding response failed!", err)
 	}
 	if res.succeed() {
 		return nil
 	}
-	return res
+	return res.Result
+}
+
+func (c *Client) search(body []byte) ([]Entry, error) {
+	if err := c.send(body); err != nil {
+		return nil, err
+	}
+  body = make([]byte, 4096)
+  var (
+    es  []Entry
+    dec = ber.NewDecoder(nil)
+  )
+  Loop:
+  for {
+    n, err := c.conn.Read(body)
+    if err != nil {
+      return nil, err
+    }
+    dec.Append(body[:n])
+    for dec.Can() {
+      id, err := dec.Peek()
+      if err != nil {
+        return nil, err
+      }
+      // fmt.Println(id.Class(), id.Type(), id.Tag())
+      switch tag := id.Tag(); uint64(tag) {
+      case ldapSearchResEntry:
+        dec.Skip()
+      case ldapSearchResDone:
+        break Loop
+      case ldapSearchResRef:
+        dec.Skip()
+      default:
+        return nil, fmt.Errorf("unexpected operation response (%02x)", id.Tag())
+      }
+    }
+  }
+  res := struct {
+    Id int
+    Result
+  }{}
+  if err := dec.Decode(&res); err != nil {
+    return nil, fmt.Errorf("%w: decoding response failed!", err)
+  }
+  if !res.succeed() {
+    return nil, res.Result
+  }
+	return es, nil
 }
