@@ -87,15 +87,20 @@ func (c *Client) Delete(dn string) error {
 }
 
 func (c *Client) ModifyPassword(dn, curr, next string) error {
-  return nil
-}
-
-func (c *Client) Rename(cdn, ndn, pdn string, keep bool) error {
 	return nil
 }
 
-func (c *Client) Move(cdn, ndn string, keep bool) error {
-	return nil
+func (c *Client) Rename(dn, rdn string, keep bool) error {
+	msg := struct {
+		Name  string `ber:"tag:0x4"`
+		Value string `ber:"tag:0x4"`
+		Keep  bool
+	}{
+		Name:  dn,
+		Value: rdn,
+		Keep:  keep,
+	}
+	return c.execute(msg, ldapModDNRequest)
 }
 
 func (c *Client) Compare(dn string, ava AttributeAssertion) (bool, error) {
@@ -129,13 +134,13 @@ func (c *Client) execute(msg interface{}, app uint64) error {
 
 	c.msgid++
 
-  var id ber.Ident
-  switch app {
-  case ldapUnbindRequest, ldapDelRequest:
-    id = ber.NewPrimitive(app)
-  default:
-    id = ber.NewConstructed(app)
-  }
+	var id ber.Ident
+	switch app {
+	case ldapUnbindRequest, ldapDelRequest:
+		id = ber.NewPrimitive(app)
+	default:
+		id = ber.NewConstructed(app)
+	}
 
 	var e ber.Encoder
 	e.EncodeInt(int64(c.msgid))

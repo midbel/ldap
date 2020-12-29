@@ -80,27 +80,52 @@ var commands = []*cli.Command{
 		Short: "authenticate",
 		Run:   runDelete,
 	},
+	{
+		Usage: "rename [-u] [-p] [-r] [-k] <dn> <rdn>",
+		Short: "rename entry",
+		Run:   runRename,
+	},
 }
 
 func main() {
 	cli.RunAndExit(commands, cli.Usage("ldap", "", commands))
 }
 
-func runBind(cmd *cli.Command, args []string) error {
-  var (
-    remote = cmd.Flag.String("r", "localhost:389", "remote host")
-    user   = cmd.Flag.String("u", "", "user")
-    pass   = cmd.Flag.String("p", "", "password")
-  )
-  if err := cmd.Flag.Parse(args); err != nil {
-    return err
-  }
+func runRename(cmd *cli.Command, args []string) error {
+	var (
+		remote = cmd.Flag.String("r", "localhost:389", "remote host")
+		user   = cmd.Flag.String("u", "", "user")
+		pass   = cmd.Flag.String("p", "", "password")
+		keep   = cmd.Flag.Bool("k", false, "keep old rdn")
+	)
+	if err := cmd.Flag.Parse(args); err != nil {
+		return err
+	}
 
-  c, err := ldap.Bind(*remote, *user, *pass)
-  if err != nil {
-    return err
-  }
-  return c.Unbind()
+	c, err := ldap.Bind(*remote, *user, *pass)
+	if err != nil {
+		return err
+	}
+	defer c.Unbind()
+
+	return c.Rename(cmd.Flag.Arg(0), cmd.Flag.Arg(1), *keep)
+}
+
+func runBind(cmd *cli.Command, args []string) error {
+	var (
+		remote = cmd.Flag.String("r", "localhost:389", "remote host")
+		user   = cmd.Flag.String("u", "", "user")
+		pass   = cmd.Flag.String("p", "", "password")
+	)
+	if err := cmd.Flag.Parse(args); err != nil {
+		return err
+	}
+
+	c, err := ldap.Bind(*remote, *user, *pass)
+	if err != nil {
+		return err
+	}
+	return c.Unbind()
 }
 
 func runDelete(cmd *cli.Command, args []string) error {
@@ -188,7 +213,7 @@ func runSearch(cmd *cli.Command, args []string) error {
 	options := []ldap.SearchOption{
 		ldap.WithScope(ldap.ScopeWhole),
 		ldap.WithTypes(*types),
-    ldap.WithAttributes(attr.Attrs),
+		ldap.WithAttributes(attr.Attrs),
 		attr.Option(),
 		scope.Option(),
 		ldap.WithLimit(*limit),
