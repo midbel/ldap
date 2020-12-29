@@ -1,6 +1,8 @@
 package ldap
 
 import (
+	"encoding/base64"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -87,31 +89,36 @@ var codestrings = map[int]string{
 }
 
 const (
-	ldapBindRequest uint64 = iota
-	ldapBindResponse
-	ldapUnbindRequest
-	ldapSearchRequest
-	ldapSearchResEntry
-	ldapSearchResDone
-	ldapSearchResRef
-	ldapModifyRequest
-	ldapModifyResponse
-	ldapAddRequest
-	ldapAddResponse
-	ldapDelRequest
-	ldapDelResponse
-	ldapModDNRequest
-	ldapModDNResponse
-	ldapCmpRequest
-	ldapCmpResponse
-	ldapAbandonRequest
-	ldapExtendedRequest
-	ldapExtendedResponse
+	ldapBindRequest      uint64 = 0
+	ldapBindResponse            = 1
+	ldapUnbindRequest           = 2
+	ldapSearchRequest           = 3
+	ldapSearchResEntry          = 4
+	ldapSearchResDone           = 5
+	ldapSearchResRef            = 19
+	ldapModifyRequest           = 6
+	ldapModifyResponse          = 7
+	ldapAddRequest              = 8
+	ldapAddResponse             = 9
+	ldapDelRequest              = 10
+	ldapDelResponse             = 11
+	ldapModDNRequest            = 12
+	ldapModDNResponse           = 13
+	ldapCmpRequest              = 14
+	ldapCmpResponse             = 15
+	ldapAbandonRequest          = 16
+	ldapExtendedRequest         = 23
+	ldapExtendedResponse        = 24
 )
+
+type Attribute struct {
+	Name   string
+	Values []string
+}
 
 type Entry struct {
 	Name  string
-	Attrs map[string][]string
+	Attrs []Attribute
 }
 
 type Control struct {
@@ -150,13 +157,35 @@ func (r Result) Error() string {
 }
 
 type AttributeAssertion struct {
-	desc string
-	attr []byte
+	Desc string `ber:"tag:0x4"`
+	Attr string `ber:"tag:0x4"`
+}
+
+func FromLDIF(ldif string) (AttributeAssertion, error) {
+	var (
+		ava AttributeAssertion
+		x   = strings.Index(ldif, ":")
+	)
+	if x < 0 {
+		return ava, fmt.Errorf("%s: invalid input string (missing colon)", ldif)
+	}
+	ava.Desc = ldif[:x]
+	x++
+	if ldif[x] == ':' {
+		attr, err := base64.StdEncoding.DecodeString(ldif[x+1:])
+		if err != nil {
+			return ava, err
+		}
+		ava.Attr = string(attr)
+	} else {
+		ava.Attr = ldif[x:]
+	}
+	return ava, nil
 }
 
 func NewAssertion(attr, value string) AttributeAssertion {
 	return AttributeAssertion{
-		desc: attr,
-		attr: []byte(value),
+		Desc: attr,
+		Attr: value,
 	}
 }

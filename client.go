@@ -16,10 +16,6 @@ type Client struct {
 	anonymous bool
 }
 
-func Anonymous(addr string) (*Client, error) {
-	return Bind(addr, "", "")
-}
-
 func Bind(addr, user, passwd string) (*Client, error) {
 	c, err := net.Dial("tcp", addr)
 	if err != nil {
@@ -32,11 +28,7 @@ func Bind(addr, user, passwd string) (*Client, error) {
 }
 
 func (c *Client) Bind(user, passwd string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.msgid++
-	bind := struct {
+	msg := struct {
 		Version int
 		Name    string `ber:"octetstr"`
 		Pass    string `ber:"class:0x2,type:0x0,tag:0x0"`
@@ -45,36 +37,13 @@ func (c *Client) Bind(user, passwd string) error {
 		Name:    user,
 		Pass:    passwd,
 	}
-
-	var e ber.Encoder
-	e.EncodeInt(int64(c.msgid))
-	e.EncodeWithIdent(bind, ber.NewConstructed(ldapBindRequest).Application())
-	body, err := e.AsSequence()
-	if err != nil {
-		return fmt.Errorf("%w: encoding bind operation failed!", err)
-	}
-	return c.recv(body)
+	return c.execute(msg, ldapBindRequest)
 }
 
 func (c *Client) Unbind() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.msgid++
-	unbind := struct{}{}
-
-	var e ber.Encoder
-	e.EncodeInt(int64(c.msgid))
-	e.EncodeWithIdent(unbind, ber.NewConstructed(ldapUnbindRequest).Application())
-	body, err := e.AsSequence()
-	if err != nil {
-		return fmt.Errorf("%w: encoding unbind operation failed!", err)
-	}
-
-	if err := c.send(body); err != nil {
-		return err
-	}
-	return c.conn.Close()
+	defer c.conn.Close()
+	msg := struct{}{}
+	return c.execute(msg, ldapUnbindRequest)
 }
 
 func (c *Client) Search(base string, options ...SearchOption) ([]Entry, error) {
@@ -94,10 +63,6 @@ func (c *Client) Search(base string, options ...SearchOption) ([]Entry, error) {
 			return nil, err
 		}
 	}
-	if len(search.Attrs) == 0 {
-		search.Attrs = append(search.Attrs, []byte("*"))
-	}
-  fmt.Printf("%+v\n", search)
 
 	var e ber.Encoder
 	e.EncodeInt(int64(c.msgid))
@@ -113,6 +78,18 @@ func (c *Client) Modify(cdn string) error {
 	return nil
 }
 
+func (c *Client) Add() error {
+	return nil
+}
+
+func (c *Client) Delete(dn string) error {
+	return c.execute([]byte(dn), ldapDelRequest)
+}
+
+func (c *Client) ModifyPassword(dn, curr, next string) error {
+  return nil
+}
+
 func (c *Client) Rename(cdn, ndn, pdn string, keep bool) error {
 	return nil
 }
@@ -121,31 +98,82 @@ func (c *Client) Move(cdn, ndn string, keep bool) error {
 	return nil
 }
 
-func (c *Client) Add() error {
-	return nil
+func (c *Client) Compare(dn string, ava AttributeAssertion) (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.msgid++
+
+	cmp := struct {
+		Name string `ber:"tag:0x4"`
+		Ava  AttributeAssertion
+	}{
+		Name: dn,
+		Ava:  ava,
+	}
+
+	var e ber.Encoder
+	e.EncodeInt(int64(c.msgid))
+	e.EncodeWithIdent(cmp, ber.NewConstructed(ldapCmpRequest).Application())
+	body, err := e.AsSequence()
+	if err != nil {
+		return false, err
+	}
+	res, err := c.result(body, ldapCmpResponse)
+	return res.Code == CompareTrue, err
 }
 
-func (c *Client) Delete() error {
-	return nil
-}
+func (c *Client) execute(msg interface{}, app uint64) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-func (c *Client) Compare(dn string) error {
-	return nil
-}
+	c.msgid++
 
-func (c *Client) send(body []byte) error {
-	_, err := c.conn.Write(body)
+  var id ber.Ident
+  switch app {
+  case ldapUnbindRequest, ldapDelRequest:
+    id = ber.NewPrimitive(app)
+  default:
+    id = ber.NewConstructed(app)
+  }
+
+	var e ber.Encoder
+	e.EncodeInt(int64(c.msgid))
+	e.EncodeWithIdent(msg, id.Application())
+	body, err := e.AsSequence()
+	if err != nil {
+		return err
+	}
+
+	switch app {
+	default:
+		app = 0
+	case ldapBindRequest:
+		app = ldapBindResponse
+	case ldapAddRequest:
+		app = ldapAddResponse
+	case ldapModifyRequest:
+		app = ldapModifyResponse
+	case ldapDelRequest:
+		app = ldapDelResponse
+	case ldapModDNRequest:
+		app = ldapModDNResponse
+	}
+	_, err = c.result(body, app)
 	return err
 }
 
-func (c *Client) recv(body []byte) error {
-	if err := c.send(body); err != nil {
-		return err
+func (c *Client) result(body []byte, app uint64) (Result, error) {
+	if _, err := c.conn.Write(body); err != nil {
+		return Result{}, err
 	}
-	body = make([]byte, 4096)
+	if app == 0 {
+		return Result{}, nil
+	}
+	body = make([]byte, 1<<15)
 	n, err := c.conn.Read(body)
 	if err != nil {
-		return err
+		return Result{}, err
 	}
 	res := struct {
 		Id int
@@ -153,57 +181,71 @@ func (c *Client) recv(body []byte) error {
 	}{}
 	dec := ber.NewDecoder(body[:n])
 	if err := dec.Decode(&res); err != nil {
-		return fmt.Errorf("%w: decoding response failed!", err)
+		return res.Result, fmt.Errorf("%w: decoding response failed!", err)
 	}
 	if res.succeed() {
-		return nil
+		return res.Result, nil
 	}
-	return res.Result
+	return res.Result, res.Result
 }
 
 func (c *Client) search(body []byte) ([]Entry, error) {
-	if err := c.send(body); err != nil {
+	if _, err := c.conn.Write(body); err != nil {
 		return nil, err
 	}
-  body = make([]byte, 4096)
-  var (
-    es  []Entry
-    dec = ber.NewDecoder(nil)
-  )
-  Loop:
-  for {
-    n, err := c.conn.Read(body)
-    if err != nil {
-      return nil, err
-    }
-    dec.Append(body[:n])
-    for dec.Can() {
-      id, err := dec.Peek()
-      if err != nil {
-        return nil, err
-      }
-      // fmt.Println(id.Class(), id.Type(), id.Tag())
-      switch tag := id.Tag(); uint64(tag) {
-      case ldapSearchResEntry:
-        dec.Skip()
-      case ldapSearchResDone:
-        break Loop
-      case ldapSearchResRef:
-        dec.Skip()
-      default:
-        return nil, fmt.Errorf("unexpected operation response (%02x)", id.Tag())
-      }
-    }
-  }
-  res := struct {
-    Id int
-    Result
-  }{}
-  if err := dec.Decode(&res); err != nil {
-    return nil, fmt.Errorf("%w: decoding response failed!", err)
-  }
-  if !res.succeed() {
-    return nil, res.Result
-  }
+	body = make([]byte, 1<<15)
+	var (
+		es   []Entry
+		res  Result
+		done bool
+		dec  = ber.NewDecoder(nil)
+	)
+	for !done {
+		n, err := c.conn.Read(body)
+		if err != nil {
+			return nil, err
+		}
+		dec.Append(body[:n])
+		for dec.Can() && !done {
+			var msg searchMessage
+			if err := dec.Decode(&msg); err != nil {
+				return nil, err
+			}
+			id, _ := msg.Body.Peek()
+			switch tag := id.Tag(); uint64(tag) {
+			case ldapSearchResDone:
+				if err := msg.Decode(&res); err != nil {
+					return nil, err
+				}
+				done = true
+			case ldapSearchResEntry:
+				var e Entry
+				if err := msg.Decode(&e); err != nil {
+					return nil, err
+				}
+				es = append(es, e)
+			case ldapSearchResRef:
+			default:
+				return nil, fmt.Errorf("unexpected response code (%02x)!", tag)
+			}
+		}
+	}
+	if !res.succeed() {
+		return nil, res
+	}
 	return es, nil
+}
+
+type searchMessage struct {
+	Id   int
+	Body ber.Raw
+}
+
+func (sm searchMessage) Empty() bool {
+	return len(sm.Body) == 0
+}
+
+func (sm searchMessage) Decode(val interface{}) error {
+	d := ber.NewDecoder([]byte(sm.Body))
+	return d.Decode(val)
 }

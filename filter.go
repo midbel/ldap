@@ -1,6 +1,8 @@
 package ldap
 
 import (
+	"fmt"
+
 	"github.com/midbel/ber"
 )
 
@@ -18,7 +20,80 @@ const (
 )
 
 type Filter interface {
+	Not() Filter
 	ber.Marshaler
+	fmt.Stringer
+}
+
+type compare struct {
+	left  string
+	right interface{}
+	tag   uint64
+}
+
+func Equal(attr string, right interface{}) Filter {
+	return nil
+}
+
+func LessEq(attr string, right interface{}) Filter {
+	return nil
+}
+
+func GreatEq(attr string, right interface{}) Filter {
+	return nil
+}
+
+func (c compare) Marshal() ([]byte, error) {
+	return nil, nil
+}
+
+func (c compare) String() string {
+	return ""
+}
+
+func (c compare) Not() Filter {
+	return nil
+}
+
+type relational struct {
+	filters []Filter
+	tag     uint64
+}
+
+func And(filters ...Filter) Filter {
+	return nil
+}
+
+func Or(filters ...Filter) Filter {
+	return nil
+}
+
+func (r relational) Marshal() ([]byte, error) {
+	return nil, nil
+}
+
+func (r relational) String() string {
+	return ""
+}
+
+func (r relational) Not() Filter {
+	return nil
+}
+
+type not struct {
+	inner Filter
+}
+
+func (n not) Marshal() ([]byte, error) {
+	return nil, nil
+}
+
+func (n not) String() string {
+	return ""
+}
+
+func (n not) Not() Filter {
+	return n.inner
 }
 
 type present struct {
@@ -35,4 +110,12 @@ func (p present) Marshal() ([]byte, error) {
 		return nil, err
 	}
 	return e.Bytes(), nil
+}
+
+func (p present) String() string {
+	return fmt.Sprintf("%s=*", p.attr)
+}
+
+func (p present) Not() Filter {
+	return nil
 }
