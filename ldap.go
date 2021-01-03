@@ -112,8 +112,8 @@ const (
 )
 
 type Attribute struct {
-	Name   string
-	Values []string
+	Name   string `ber:"octetstr"`
+	Values []string `ber:"set"`
 }
 
 func createAttribute(name, value string) Attribute {

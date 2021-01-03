@@ -15,7 +15,7 @@ import (
 	"strings"
 )
 
-type ChangeType int
+type ChangeType uint8
 
 const (
 	ModAdd ChangeType = iota
@@ -23,8 +23,12 @@ const (
 	ModReplace
 )
 
+func (c ChangeType) IsValid() bool {
+	return c <= ModReplace
+}
+
 type PartialAttribute struct {
-	Mod ChangeType
+	Mod ChangeType `ber:"enumerated"`
 	Attribute
 }
 
@@ -44,7 +48,7 @@ type Change struct {
 }
 
 func ReadLDIF(r io.Reader, exec func(ChangeType, Change) error) error {
-  rs := bufio.NewReader(r)
+	rs := bufio.NewReader(r)
 	return readBlock(rs, func() error {
 		var c Change
 		ct, err := parseChange(rs, &c)

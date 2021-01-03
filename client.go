@@ -8,12 +8,16 @@ import (
 	"github.com/midbel/ber"
 )
 
+const (
+	tlsOID = "1.3.6.1.4.1.1466.20037"
+	pwdOID = "1.3.6.1.4.1.4203.1.11.1"
+)
+
 type Client struct {
 	conn net.Conn
 
 	mu        sync.Mutex
 	msgid     uint32
-	anonymous bool
 }
 
 func Bind(addr, user, passwd string) (*Client, error) {
@@ -75,11 +79,25 @@ func (c *Client) Search(base string, options ...SearchOption) ([]Entry, error) {
 }
 
 func (c *Client) Modify(dn string, attrs []PartialAttribute) error {
-	return nil
+	msg := struct {
+		Name string `ber:"octetstr"`
+    Attrs []PartialAttribute
+	}{
+    Name: dn,
+    Attrs: attrs,
+  }
+	return c.execute(msg, ldapModifyRequest)
 }
 
 func (c *Client) Add(dn string, attrs []Attribute) error {
-	return nil
+	msg := struct {
+		Name string `ber:"octetstr"`
+    Attrs []Attribute
+	}{
+    Name: dn,
+    Attrs: attrs,
+  }
+	return c.execute(msg, ldapAddRequest)
 }
 
 func (c *Client) Delete(dn string) error {
@@ -92,8 +110,8 @@ func (c *Client) ModifyPassword(dn, curr, next string) error {
 
 func (c *Client) Rename(dn, rdn string, keep bool) error {
 	msg := struct {
-		Name  string `ber:"tag:0x4"`
-		Value string `ber:"tag:0x4"`
+		Name  string `ber:"octetstr"`
+		Value string `ber:"octetstr"`
 		Keep  bool
 	}{
 		Name:  dn,
@@ -109,10 +127,10 @@ func (c *Client) Move(dn, parent string) error {
 		return err
 	}
 	msg := struct {
-		Name   string `ber:"tag:0x4"`
-		Value  string `ber:"tag:0x4"`
+		Name   string `ber:"octetstr"`
+		Value  string `ber:"octetstr"`
 		Keep   bool
-		Parent string `ber:"tag:0x4"`
+		Parent string `ber:"octetstr"`
 	}{
 		Name:   dn,
 		Value:  name.RDN().String(),
@@ -129,7 +147,7 @@ func (c *Client) Compare(dn string, ava AttributeAssertion) (bool, error) {
 	c.msgid++
 
 	cmp := struct {
-		Name string `ber:"tag:0x4"`
+		Name string `ber:"octetstr"`
 		Ava  AttributeAssertion
 	}{
 		Name: dn,
