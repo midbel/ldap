@@ -6,7 +6,7 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
-  "io"
+	"io"
 	"os"
 	"strings"
 
@@ -78,42 +78,31 @@ func (c *Client) Bind() error {
 }
 
 func (c *Client) ExecFromReader(r io.Reader) error {
-  return nil
+	return ldap.ReadLDIF(r, func(ct ldap.ChangeType, cg ldap.Change) error {
+		switch ct {
+		case ldap.ModAdd:
+			attrs := make([]ldap.Attribute, len(cg.Attrs))
+			for i := range cg.Attrs {
+				attrs[i] = cg.Attrs[i].Attribute
+			}
+			return c.Client.Add(cg.Name, attrs)
+		case ldap.ModDelete:
+			return c.Client.Delete(cg.Name)
+		case ldap.ModReplace:
+			return c.Client.Modify(cg.Name, cg.Attrs)
+		default:
+			return fmt.Errorf("unsupported/unknown action")
+		}
+	})
 }
 
 func (c *Client) ExecFromFile(file string) error {
-  r, err := os.Open(file)
-  if err != nil {
-    return err
-  }
-  defer r.Close()
-  return c.ExecFromReader(r)
-}
-
-func (c *Client) AddFromReader(r io.Reader) error {
-	return nil
-}
-
-func (c *Client) AddFromFile(file string) error {
-  r, err := os.Open(file)
-  if err != nil {
-    return err
-  }
-  defer r.Close()
-	return c.AddFromReader(r)
-}
-
-func (c *Client) ModifyFromReader(r io.Reader) error {
-	return nil
-}
-
-func (c *Client) ModifyFromFile(file string) error {
-  r, err := os.Open(file)
-  if err != nil {
-    return err
-  }
-  defer r.Close()
-  return c.ModifyFromReader(r)
+	r, err := os.Open(file)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	return c.ExecFromReader(r)
 }
 
 var commands = []*cli.Command{
@@ -136,16 +125,6 @@ var commands = []*cli.Command{
 		Run:   runCompare,
 	},
 	{
-		Usage: "add [-u] [-p] [-r] <file|->",
-		Short: "add entries to a directory",
-		Run:   runAdd,
-	},
-	{
-		Usage: "modify [-u] [-p] [-r] <file|->",
-		Short: "modify entries in a ldap",
-		Run:   runModify,
-	},
-	{
 		Usage: "delete [-u] [-p] [-r] <dn...>",
 		Alias: []string{"rm", "del", "remove"},
 		Short: "remove entries from ldap",
@@ -162,12 +141,12 @@ var commands = []*cli.Command{
 		Short: "move entry to new parent",
 		Run:   runMove,
 	},
-  {
-    Usage: "execute [-u] [-p] [-r] <file|->",
-    Alias: []string{"exec"},
-    Short: "execute ldap operations found in the given file",
-    Run: runExec,
-  },
+	{
+		Usage: "execute [-u] [-p] [-r] <file|->",
+		Alias: []string{"exec"},
+		Short: "execute ldap operations found in the given file",
+		Run:   runExec,
+	},
 	{
 		Usage: "explode <dn...>",
 		Short: "explode dn components",
@@ -264,13 +243,13 @@ func runExec(cmd *cli.Command, args []string) error {
 		return err
 	}
 	defer client.Unbind()
-  var err error
-  if cmd.Flag.NArg() == 0 {
-    err = client.ExecFromReader(os.Stdin)
-  } else {
-    err = client.ExecFromFile(cmd.Flag.Arg(0))
-  }
-  return err
+	var err error
+	if cmd.Flag.NArg() == 0 {
+		err = client.ExecFromReader(os.Stdin)
+	} else {
+		err = client.ExecFromFile(cmd.Flag.Arg(0))
+	}
+	return err
 }
 
 func runMove(cmd *cli.Command, args []string) error {
@@ -332,52 +311,6 @@ func runDelete(cmd *cli.Command, args []string) error {
 		}
 	}
 	return nil
-}
-
-func runAdd(cmd *cli.Command, args []string) error {
-	var client Client
-	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
-	cmd.Flag.StringVar(&client.User, "u", "", "user")
-	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
-	if err := cmd.Flag.Parse(args); err != nil {
-		return err
-	}
-
-	if err := client.Bind(); err != nil {
-		return err
-	}
-	defer client.Unbind()
-
-	var err error
-	if cmd.Flag.NArg() == 0 {
-		err = client.AddFromReader(os.Stdin)
-	} else {
-		err = client.AddFromFile(cmd.Flag.Arg(0))
-	}
-	return err
-}
-
-func runModify(cmd *cli.Command, args []string) error {
-	var client Client
-	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
-	cmd.Flag.StringVar(&client.User, "u", "", "user")
-	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
-	if err := cmd.Flag.Parse(args); err != nil {
-		return err
-	}
-
-	if err := client.Bind(); err != nil {
-		return err
-	}
-	defer client.Unbind()
-
-	var err error
-	if cmd.Flag.NArg() == 0 {
-		err = client.ModifyFromReader(os.Stdin)
-	} else {
-		err = client.ModifyFromFile(cmd.Flag.Arg(0))
-	}
-	return err
 }
 
 func runCompare(cmd *cli.Command, args []string) error {

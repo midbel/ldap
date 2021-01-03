@@ -116,6 +116,17 @@ type Attribute struct {
 	Values []string
 }
 
+func createAttribute(name, value string) Attribute {
+	var values []string
+	if value != "" {
+		values = append(values, value)
+	}
+	return Attribute{
+		Name:   name,
+		Values: values,
+	}
+}
+
 type Entry struct {
 	Name  string
 	Attrs []Attribute
@@ -183,3 +194,21 @@ func NewAssertion(attr, value string) AttributeAssertion {
 		Attr: value,
 	}
 }
+
+const (
+	equal     = '='
+	comma     = ','
+	dquote    = '"'
+	backslash = '\\'
+	plus      = '+'
+	minus     = '-'
+	dot       = '.'
+	semicolon = ';'
+	langle    = '<'
+	rangle    = '>'
+	sharp     = '#'
+	newline   = '\n'
+	carriage  = '\r'
+	space     = ' '
+	colon     = ':'
+)

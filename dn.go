@@ -74,20 +74,6 @@ func Explode(dn string) (DN, error) {
 	return explodeDN(strings.NewReader(dn))
 }
 
-const (
-	equal     = '='
-	comma     = ','
-	dquote    = '"'
-	backslash = '\\'
-	plus      = '+'
-	minus     = '-'
-	dot       = '.'
-	semicolon = ';'
-	langle    = '<'
-	rangle    = '>'
-	sharp     = '#'
-)
-
 func explodeDN(str *strings.Reader) (DN, error) {
 	var dn DN
 	for str.Len() > 0 {

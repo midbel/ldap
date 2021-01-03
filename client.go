@@ -74,12 +74,12 @@ func (c *Client) Search(base string, options ...SearchOption) ([]Entry, error) {
 	return c.search(body)
 }
 
-func (c *Client) Modify(dn string) error {
+func (c *Client) Modify(dn string, attrs []PartialAttribute) error {
 	return nil
 }
 
-func (c *Client) Add(dn string) error {
-  return nil
+func (c *Client) Add(dn string, attrs []Attribute) error {
+	return nil
 }
 
 func (c *Client) Delete(dn string) error {
