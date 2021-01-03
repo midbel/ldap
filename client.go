@@ -9,15 +9,15 @@ import (
 )
 
 const (
-	tlsOID = "1.3.6.1.4.1.1466.20037"
-	pwdOID = "1.3.6.1.4.1.4203.1.11.1"
+	oidStartTLS     = "1.3.6.1.4.1.1466.20037"
+	oidChangePasswd = "1.3.6.1.4.1.4203.1.11.1"
 )
 
 type Client struct {
 	conn net.Conn
 
-	mu        sync.Mutex
-	msgid     uint32
+	mu    sync.Mutex
+	msgid uint32
 }
 
 func Bind(addr, user, passwd string) (*Client, error) {
@@ -80,23 +80,23 @@ func (c *Client) Search(base string, options ...SearchOption) ([]Entry, error) {
 
 func (c *Client) Modify(dn string, attrs []PartialAttribute) error {
 	msg := struct {
-		Name string `ber:"octetstr"`
-    Attrs []PartialAttribute
+		Name  string `ber:"octetstr"`
+		Attrs []PartialAttribute
 	}{
-    Name: dn,
-    Attrs: attrs,
-  }
+		Name:  dn,
+		Attrs: attrs,
+	}
 	return c.execute(msg, ldapModifyRequest)
 }
 
 func (c *Client) Add(dn string, attrs []Attribute) error {
 	msg := struct {
-		Name string `ber:"octetstr"`
-    Attrs []Attribute
+		Name  string `ber:"octetstr"`
+		Attrs []Attribute
 	}{
-    Name: dn,
-    Attrs: attrs,
-  }
+		Name:  dn,
+		Attrs: attrs,
+	}
 	return c.execute(msg, ldapAddRequest)
 }
 
@@ -105,7 +105,17 @@ func (c *Client) Delete(dn string) error {
 }
 
 func (c *Client) ModifyPassword(dn, curr, next string) error {
-	return nil
+	msg := struct {
+		Name string `ber:"class:0x2,tag:0x0,omitempty"`
+		Old  string `ber:"class:0x2,tag:0x1,omitempty"`
+		New  string `ber:"class:0x2,tag:0x2,omitempty"`
+	}{
+		Name: dn,
+		Old:  curr,
+		New:  next,
+	}
+	req := createExtendedRequest(oidChangePasswd, msg)
+	return c.execute(req, ldapExtendedRequest)
 }
 
 func (c *Client) Rename(dn, rdn string, keep bool) error {
@@ -200,6 +210,8 @@ func (c *Client) execute(msg interface{}, app uint64) error {
 		app = ldapDelResponse
 	case ldapModDNRequest:
 		app = ldapModDNResponse
+	case ldapExtendedRequest:
+		app = ldapExtendedResponse
 	}
 	_, err = c.result(body, app)
 	return err

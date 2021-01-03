@@ -111,22 +111,6 @@ const (
 	ldapExtendedResponse        = 24
 )
 
-type Attribute struct {
-	Name   string `ber:"octetstr"`
-	Values []string `ber:"set"`
-}
-
-func createAttribute(name, value string) Attribute {
-	var values []string
-	if value != "" {
-		values = append(values, value)
-	}
-	return Attribute{
-		Name:   name,
-		Values: values,
-	}
-}
-
 type Entry struct {
 	Name  string
 	Attrs []Attribute
@@ -159,6 +143,47 @@ func (r Result) Error() string {
 	str.WriteString(strconv.Itoa(r.Code))
 	str.WriteString(")")
 	return str.String()
+}
+
+type extendedRequest struct {
+	OID  string      `ber:"class:0x2,tag:0x0"`
+	Body interface{} `ber:"class:0x2,tag:0x1"`
+}
+
+func createExtendedRequest(oid string, body interface{}) extendedRequest {
+	e := extendedRequest{OID: oid}
+	e.setBody(body)
+	return e
+}
+
+func (e *extendedRequest) setBody(msg interface{}) {
+	e.Body = struct {
+		Body interface{}
+	}{
+		Body: msg,
+	}
+}
+
+type extendedResponse struct {
+	Result
+	Name  string
+	Value string
+}
+
+type Attribute struct {
+	Name   string   `ber:"octetstr"`
+	Values []string `ber:"set"`
+}
+
+func createAttribute(name, value string) Attribute {
+	var values []string
+	if value != "" {
+		values = append(values, value)
+	}
+	return Attribute{
+		Name:   name,
+		Values: values,
+	}
 }
 
 type AttributeAssertion struct {
