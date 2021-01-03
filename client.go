@@ -74,12 +74,12 @@ func (c *Client) Search(base string, options ...SearchOption) ([]Entry, error) {
 	return c.search(body)
 }
 
-func (c *Client) Modify(cdn string) error {
+func (c *Client) Modify(dn string) error {
 	return nil
 }
 
-func (c *Client) Add() error {
-	return nil
+func (c *Client) Add(dn string) error {
+  return nil
 }
 
 func (c *Client) Delete(dn string) error {
@@ -99,6 +99,25 @@ func (c *Client) Rename(dn, rdn string, keep bool) error {
 		Name:  dn,
 		Value: rdn,
 		Keep:  keep,
+	}
+	return c.execute(msg, ldapModDNRequest)
+}
+
+func (c *Client) Move(dn, parent string) error {
+	name, err := Explode(dn)
+	if err != nil {
+		return err
+	}
+	msg := struct {
+		Name   string `ber:"tag:0x4"`
+		Value  string `ber:"tag:0x4"`
+		Keep   bool
+		Parent string `ber:"tag:0x4"`
+	}{
+		Name:   dn,
+		Value:  name.RDN().String(),
+		Keep:   false,
+		Parent: parent,
 	}
 	return c.execute(msg, ldapModDNRequest)
 }

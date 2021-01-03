@@ -121,12 +121,6 @@ type Entry struct {
 	Attrs []Attribute
 }
 
-type Control struct {
-	oid      string
-	critical bool
-	value    string
-}
-
 type Result struct {
 	Code       int
 	Name       string
