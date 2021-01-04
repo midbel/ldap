@@ -67,12 +67,15 @@ type Client struct {
 	Pass string
 	Cert string
 	Addr string
+	TLS  bool
 }
 
 func (c *Client) Bind() error {
-	client, err := ldap.Bind(c.Addr, c.User, c.Pass)
-	if err == nil {
-		c.Client = client
+	var err error
+	if c.TLS {
+		c.Client, err = ldap.BindTLS(c.Addr, c.User, c.Pass)
+	} else {
+		c.Client, err = ldap.Bind(c.Addr, c.User, c.Pass)
 	}
 	return err
 }
@@ -148,15 +151,20 @@ var commands = []*cli.Command{
 		Run:   runExec,
 	},
 	{
-		Usage: "explode <dn...>",
-		Short: "explode dn components",
-		Run:   runExplode,
+		Usage: "password [-u] [-p] [-r] [<dn>]",
+		Short: "modify password",
+		Run:   runModifyPasswd,
 	},
-	{
-		Usage: "passwd [-a] [-s]",
-		Short: "create password",
-		Run:   runPasswd,
-	},
+	// {
+	// 	Usage: "explode <dn...>",
+	// 	Short: "explode dn components",
+	// 	Run:   runExplode,
+	// },
+	// {
+	// 	Usage: "passwd [-a] [-s]",
+	// 	Short: "create password",
+	// 	Run:   runPasswd,
+	// },
 }
 
 func main() {
@@ -215,11 +223,39 @@ func runExplode(cmd *cli.Command, args []string) error {
 	return nil
 }
 
+func runModifyPasswd(cmd *cli.Command, args []string) error {
+	var client Client
+	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
+	cmd.Flag.StringVar(&client.User, "u", "", "user")
+	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
+	cmd.Flag.BoolVar(&client.TLS, "z", false, "start tls")
+	if err := cmd.Flag.Parse(args); err != nil {
+		return err
+	}
+
+	if err := client.Bind(); err != nil {
+		return err
+	}
+	defer client.Unbind()
+
+	var (
+		user = client.User
+		old  = client.Pass
+		pass = strrand.String(12)
+	)
+	if cmd.Flag.NArg() > 0 {
+		old = ""
+		user = cmd.Flag.Arg(0)
+	}
+	return client.ModifyPassword(user, old, pass)
+}
+
 func runBind(cmd *cli.Command, args []string) error {
 	var client Client
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
+	cmd.Flag.BoolVar(&client.TLS, "z", false, "start tls")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -235,6 +271,7 @@ func runExec(cmd *cli.Command, args []string) error {
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
+	cmd.Flag.BoolVar(&client.TLS, "z", false, "start tls")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -257,6 +294,7 @@ func runMove(cmd *cli.Command, args []string) error {
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
+	cmd.Flag.BoolVar(&client.TLS, "z", false, "start tls")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -278,6 +316,7 @@ func runRename(cmd *cli.Command, args []string) error {
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
 	cmd.Flag.BoolVar(&keep, "k", false, "keep old rdn")
+	cmd.Flag.BoolVar(&client.TLS, "z", false, "start tls")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -295,6 +334,7 @@ func runDelete(cmd *cli.Command, args []string) error {
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
+	cmd.Flag.BoolVar(&client.TLS, "z", false, "start tls")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -318,6 +358,7 @@ func runCompare(cmd *cli.Command, args []string) error {
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
+	cmd.Flag.BoolVar(&client.TLS, "z", false, "start tls")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -361,6 +402,7 @@ func runSearch(cmd *cli.Command, args []string) error {
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
+	cmd.Flag.BoolVar(&client.TLS, "z", false, "start tls")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}

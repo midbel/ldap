@@ -147,12 +147,14 @@ func (r Result) Error() string {
 
 type extendedRequest struct {
 	OID  string      `ber:"class:0x2,tag:0x0"`
-	Body interface{} `ber:"class:0x2,tag:0x1"`
+	Body interface{} `ber:"class:0x2,tag:0x1,omitempty"`
 }
 
 func createExtendedRequest(oid string, body interface{}) extendedRequest {
 	e := extendedRequest{OID: oid}
-	e.setBody(body)
+	if body != nil {
+		e.setBody(body)
+	}
 	return e
 }
 

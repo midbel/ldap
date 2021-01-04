@@ -1,6 +1,7 @@
 package ldap
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"sync"
@@ -20,7 +21,7 @@ type Client struct {
 	msgid uint32
 }
 
-func Bind(addr, user, passwd string) (*Client, error) {
+func Open(addr string) (*Client, error) {
 	c, err := net.Dial("tcp", addr)
 	if err != nil {
 		return nil, err
@@ -28,7 +29,26 @@ func Bind(addr, user, passwd string) (*Client, error) {
 	client := Client{
 		conn: c,
 	}
-	return &client, client.Bind(user, passwd)
+	return &client, nil
+}
+
+func BindTLS(addr, user, passwd string) (*Client, error) {
+	c, err := Open(addr)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.StartTLS(); err != nil {
+		return nil, err
+	}
+	return c, c.Bind(user, passwd)
+}
+
+func Bind(addr, user, passwd string) (*Client, error) {
+	c, err := Open(addr)
+	if err != nil {
+		return nil, err
+	}
+	return c, c.Bind(user, passwd)
 }
 
 func (c *Client) Bind(user, passwd string) error {
@@ -116,6 +136,18 @@ func (c *Client) ModifyPassword(dn, curr, next string) error {
 	}
 	req := createExtendedRequest(oidChangePasswd, msg)
 	return c.execute(req, ldapExtendedRequest)
+}
+
+func (c *Client) StartTLS() error {
+	req := createExtendedRequest(oidStartTLS, nil)
+	err := c.execute(req, ldapExtendedRequest)
+	if err == nil {
+		cfg := tls.Config{
+			InsecureSkipVerify: true,
+		}
+		c.conn = tls.Client(c.conn, &cfg)
+	}
+	return err
 }
 
 func (c *Client) Rename(dn, rdn string, keep bool) error {
