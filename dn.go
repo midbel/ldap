@@ -148,14 +148,6 @@ func readAttrValue(str *strings.Reader, a *Attribute) (rune, error) {
 	return last, nil
 }
 
-func isDigit(r rune) bool {
-	return r >= '0' && r <= '9'
-}
-
-func isLetter(r rune) bool {
-	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
-}
-
 func acceptOID(r rune) bool {
 	return isDigit(r) || r == dot
 }

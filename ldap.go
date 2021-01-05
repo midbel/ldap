@@ -229,6 +229,7 @@ const (
 	backslash = '\\'
 	plus      = '+'
 	minus     = '-'
+	star      = '*'
 	dot       = '.'
 	semicolon = ';'
 	langle    = '<'
@@ -238,4 +239,27 @@ const (
 	carriage  = '\r'
 	space     = ' '
 	colon     = ':'
+	ampersand = '&'
+	pipe      = '|'
+	lparen    = '('
+	rparen    = ')'
+	bang      = '!'
+	tilde     = '~'
 )
+
+func isDigit(r rune) bool {
+	return r >= '0' && r <= '9'
+}
+
+func isLetter(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+}
+
+func isOperator(r rune) bool {
+	switch r {
+	case colon, equal, langle, rangle, tilde:
+		return true
+	default:
+		return false
+	}
+}

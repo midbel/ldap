@@ -420,6 +420,13 @@ func runSearch(cmd *cli.Command, args []string) error {
 		scope.Option(),
 		ldap.WithLimit(limit),
 	}
+	if cmd.Flag.NArg() > 1 {
+		filter, err := ldap.ParseFilter(cmd.Flag.Arg(1))
+		if err != nil {
+			return err
+		}
+		options = append(options, ldap.WithFilter(filter))
+	}
 
 	es, err := client.Search(cmd.Flag.Arg(0), options...)
 	if err != nil {

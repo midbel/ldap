@@ -52,6 +52,13 @@ type searchRequest struct {
 
 type SearchOption func(*searchRequest) error
 
+func WithFilter(filter Filter) SearchOption {
+	return func(sr *searchRequest) error {
+		sr.Filter = filter
+		return nil
+	}
+}
+
 func WithScope(scope Scope) SearchOption {
 	return func(sr *searchRequest) error {
 		if !scope.isValid() {
