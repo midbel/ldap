@@ -33,6 +33,7 @@ const (
 type Filter interface {
 	Not() Filter
 	ber.Marshaler
+	fmt.Stringer
 }
 
 func ParseFilter(str string) (Filter, error) {
@@ -75,8 +76,46 @@ func createCompareFilter(attr, value string, tag uint64) Filter {
 	}
 }
 
+func (c compare) String() string {
+	var str strings.Builder
+	switch c.tag {
+	default:
+		str.WriteString("other")
+	case tagFilterEquality:
+		str.WriteString("eq")
+	case tagFilterLesserEq:
+		str.WriteString("le")
+	case tagFilterGreaterEq:
+		str.WriteString("ge")
+	case tagFilterApprox:
+		str.WriteString("approx")
+	}
+	str.WriteRune(lparen)
+	str.WriteString(c.left)
+	str.WriteRune(colon)
+	str.WriteRune(space)
+	str.WriteString(c.right)
+	str.WriteRune(rparen)
+	return str.String()
+}
+
 func (c compare) Marshal() ([]byte, error) {
-	return nil, nil
+	msg := struct {
+		Attr  string `ber:"octetstr"`
+		Value string `ber:"octetstr"`
+	}{
+		Attr:  c.left,
+		Value: c.right,
+	}
+	var (
+		e   ber.Encoder
+		err error
+		id  = ber.NewConstructed(c.tag).Context()
+	)
+	if err = e.EncodeWithIdent(msg, id); err != nil {
+		return nil, err
+	}
+	return e.Bytes(), nil
 }
 
 func (c compare) Not() Filter {
@@ -102,8 +141,38 @@ func Or(filters ...Filter) Filter {
 	}
 }
 
+func (r relational) String() string {
+	var str strings.Builder
+	switch r.tag {
+	case tagFilterAnd:
+		str.WriteString("and")
+	case tagFilterOr:
+		str.WriteString("or")
+	default:
+		str.WriteString("other")
+	}
+	str.WriteRune(lparen)
+	for i := range r.filters {
+		if i > 0 {
+			str.WriteString(", ")
+		}
+		str.WriteString(r.filters[i].String())
+	}
+	str.WriteRune(rparen)
+	return str.String()
+}
+
 func (r relational) Marshal() ([]byte, error) {
-	return nil, nil
+	var (
+		e   ber.Encoder
+		err error
+	)
+	for _, f := range r.filters {
+		if err = e.Encode(f); err != nil {
+			return nil, err
+		}
+	}
+	return e.As(ber.NewConstructed(r.tag).Context())
 }
 
 func (r relational) Not() Filter {
@@ -118,8 +187,14 @@ func Not(f Filter) Filter {
 	return not{f}
 }
 
+func (n not) String() string {
+	return fmt.Sprintf("not(%s)", n.inner)
+}
+
 func (n not) Marshal() ([]byte, error) {
-	return nil, nil
+	var e ber.Encoder
+	e.Encode(n.inner)
+	return e.As(ber.NewConstructed(tagFilterNot).Context())
 }
 
 func (n not) Not() Filter {
@@ -134,12 +209,17 @@ func Present(attr string) Filter {
 	return present{attr}
 }
 
+func (p present) String() string {
+	return fmt.Sprintf("present(%s)", p.attr)
+}
+
 func (p present) Marshal() ([]byte, error) {
 	var (
-		e  ber.Encoder
-		id = ber.NewPrimitive(tagFilterPresent).Context()
+		e   ber.Encoder
+		err error
+		id  = ber.NewPrimitive(tagFilterPresent).Context()
 	)
-	if err := e.EncodeStringWithIdent(p.attr, id); err != nil {
+	if err = e.EncodeStringWithIdent(p.attr, id); err != nil {
 		return nil, err
 	}
 	return e.Bytes(), nil
@@ -163,9 +243,9 @@ func Substring(attr string, values []string) Filter {
 	n := len(values) - 1
 	if values[0] != "" {
 		s.pre = values[0]
-		values = values[1:]
-		n--
 	}
+	values = values[1:]
+	n--
 	if n > 0 && values[n] != "" {
 		s.post = values[n]
 		values = values[:n]
@@ -174,12 +254,69 @@ func Substring(attr string, values []string) Filter {
 	return s
 }
 
+func (s substring) String() string {
+	return fmt.Sprintf("sub(%s, pre: %s, post: %s, any: %s)", s.attr, s.pre, s.post, s.any)
+}
+
 func (s substring) Marshal() ([]byte, error) {
-	return nil, nil
+	msg := struct {
+		Attr   string `ber:"octetstr"`
+		Values []ber.Marshaler
+	}{
+		Attr: s.attr,
+	}
+	msg.Values = append(msg.Values, createSubElem(s.pre, subInitial))
+	for _, a := range s.any {
+		msg.Values = append(msg.Values, createSubElem(a, subAny))
+	}
+	msg.Values = append(msg.Values, createSubElem(s.post, subFinal))
+
+	var (
+		e   ber.Encoder
+		err error
+		id  = ber.NewConstructed(tagFilterSubstrings).Context()
+	)
+	if err = e.EncodeWithIdent(msg, id); err != nil {
+		return nil, err
+	}
+	return e.Bytes(), nil
 }
 
 func (s substring) Not() Filter {
 	return Not(s)
+}
+
+const (
+	subInitial uint64 = iota
+	subAny
+	subFinal
+)
+
+type subElem struct {
+	value string
+	tag   uint64
+}
+
+func createSubElem(v string, tag uint64) ber.Marshaler {
+	return subElem{
+		value: v,
+		tag:   tag,
+	}
+}
+
+func (s subElem) Marshal() ([]byte, error) {
+	if s.value == "" {
+		return nil, nil
+	}
+	var (
+		e   ber.Encoder
+		err error
+		id  = ber.NewPrimitive(s.tag).Context()
+	)
+	if err = e.EncodeStringWithIdent(s.value, id); err != nil {
+		return nil, err
+	}
+	return e.Bytes(), nil
 }
 
 type extensible struct {
@@ -198,8 +335,31 @@ func ExtensibleMatch(attr, rule, value string, dn bool) Filter {
 	}
 }
 
+func (e extensible) String() string {
+	return fmt.Sprintf("%s(%s)", e.rule, e.attr)
+}
+
 func (e extensible) Marshal() ([]byte, error) {
-	return nil, nil
+	msg := struct {
+		Rule  string `ber:"omitempty,class:0x2,tag:0x1"`
+		Name  string `ber:"omitempty,class:0x2,tag:0x2"`
+		Value string `ber:"class:0x2,tag:0x3"`
+		DN    bool   `ber:"class:0x2,tag:0x4"`
+	}{
+		Rule:  e.rule,
+		Name:  e.attr,
+		Value: e.value,
+		DN:    e.dn,
+	}
+	var (
+		x ber.Encoder
+		err error
+		id = ber.NewConstructed(tagFilterExtensible).Context()
+	)
+	if err = x.EncodeWithIdent(msg, id); err != nil {
+		return nil, err
+	}
+	return x.Bytes(), nil
 }
 
 func (e extensible) Not() Filter {
@@ -370,34 +530,25 @@ func (fp *filterParser) parseRule(str *scanner) error {
 	accept := func(r rune) bool {
 		return isDigit(r) || isLetter(r) || r == dot || r == minus
 	}
-	var buf bytes.Buffer
-	for {
-		r, err := str.Next()
-		if err != nil {
-			return err
-		}
-		if isOperator(r) {
-			str.Back()
-			break
-		}
-		if r == colon {
-			if str := buf.String(); strings.ToLower(str) != "dn" {
-				break
-			}
-			if fp.DN {
-				return syntaxError("dn attribute already set")
-			}
-			fp.DN = true
-			buf.Reset()
-			continue
-		}
-		if !accept(r) {
-			return illegalCharacter(r)
-		}
-		buf.WriteRune(r)
+	delim := func(r rune) bool {
+		return r == colon
 	}
-	fp.Rule = buf.String()
-	return nil
+	rule, err := str.ScanUntil(accept, delim)
+	if err != nil {
+		return err
+	}
+	if strings.ToLower(rule) != "dn" {
+		fp.Rule = rule
+		str.Next()
+		return nil
+	}
+	fp.DN = true
+	str.Next()
+	if isOperator(str.Curr()) && str.Curr() != colon {
+		return nil
+	}
+	fp.Rule, err = str.ScanUntil(accept, delim)
+	return err
 }
 
 func (fp *filterParser) parseValue(str *scanner) error {
@@ -442,7 +593,7 @@ func (fp *filterParser) build() (Filter, error) {
 	case tagFilterEquality:
 		filter = Equal(fp.Name, fp.Values[0])
 	case tagFilterSubstrings:
-		Substring(fp.Name, fp.Values)
+		filter = Substring(fp.Name, fp.Values)
 	case tagFilterGreaterEq:
 		filter = GreatEq(fp.Name, fp.Values[0])
 	case tagFilterLesserEq:
@@ -458,44 +609,67 @@ func (fp *filterParser) build() (Filter, error) {
 }
 
 type scanner struct {
-  input []byte
-  ptr   int
+	input []byte
+	ptr   int
 }
 
 func scan(str string) *scanner {
-  return &scanner{
-    input: []byte(str),
-  }
+	return &scanner{
+		input: []byte(str),
+	}
 }
 
 func (s *scanner) Back() {
-  if s.ptr == 0 {
-    return
-  }
-  _, z := utf8.DecodeLastRune(s.input[:s.ptr])
-  s.ptr -= z
+	if s.ptr == 0 {
+		return
+	}
+	_, z := utf8.DecodeLastRune(s.input[:s.ptr])
+	s.ptr -= z
 }
 
 func (s *scanner) Peek() rune {
-  r, _ := utf8.DecodeRune(s.input[s.ptr:])
-  return r
+	r, _ := utf8.DecodeRune(s.input[s.ptr:])
+	return r
 }
 
 func (s *scanner) Curr() rune {
-  if s.ptr == 0 {
-    return 0
-  }
-  r, _ := utf8.DecodeLastRune(s.input[:s.ptr])
-  return r
+	if s.ptr == 0 {
+		return 0
+	}
+	r, _ := utf8.DecodeRune(s.input[s.ptr:])
+	return r
 }
 
 func (s *scanner) Next() (rune, error) {
-  r, z := utf8.DecodeRune(s.input[s.ptr:])
-  if r == utf8.RuneError {
-    return 0, io.EOF
-  }
-  s.ptr += z
-  return r, nil
+	r, z := utf8.DecodeRune(s.input[s.ptr:])
+	if r == utf8.RuneError {
+		return 0, io.EOF
+	}
+	s.ptr += z
+	return r, nil
+}
+
+func (s *scanner) ScanUntil(accept, delim func(rune) bool) (string, error) {
+	var buf bytes.Buffer
+	for {
+		r, _ := s.Next()
+		if delim(r) {
+			s.Back()
+			break
+		}
+		if !accept(r) {
+			return "", illegalCharacter(r)
+		}
+		buf.WriteRune(r)
+	}
+	return buf.String(), nil
+}
+
+func (s *scanner) String() string {
+	if s.ptr >= len(s.input) {
+		return ""
+	}
+	return string(s.input[s.ptr:])
 }
 
 func invalidOperator(prev, curr rune) error {
@@ -503,7 +677,7 @@ func invalidOperator(prev, curr rune) error {
 }
 
 func illegalCharacter(curr rune) error {
-	return fmt.Errorf("%w: %c (%O2[2]x)", ErrCharacter, curr)
+	return fmt.Errorf("%w: '%c' (%02[2]x)", ErrCharacter, curr)
 }
 
 func syntaxError(msg string) error {
