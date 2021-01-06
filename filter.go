@@ -352,9 +352,9 @@ func (e extensible) Marshal() ([]byte, error) {
 		DN:    e.dn,
 	}
 	var (
-		x ber.Encoder
+		x   ber.Encoder
 		err error
-		id = ber.NewConstructed(tagFilterExtensible).Context()
+		id  = ber.NewConstructed(tagFilterExtensible).Context()
 	)
 	if err = x.EncodeWithIdent(msg, id); err != nil {
 		return nil, err
