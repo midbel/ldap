@@ -463,8 +463,8 @@ func (fp *filterParser) parseAttribute(str *scanner) error {
 			return err
 		}
 		fp.Type = tagFilterExtensible
-		if r, err = str.Next(); err != nil {
-			return err
+		if str.Curr() == colon {
+			r, _ = str.Next()
 		}
 	}
 	switch r {
@@ -539,12 +539,10 @@ func (fp *filterParser) parseRule(str *scanner) error {
 	}
 	if strings.ToLower(rule) != "dn" {
 		fp.Rule = rule
-		str.Next()
 		return nil
 	}
 	fp.DN = true
-	str.Next()
-	if isOperator(str.Curr()) && str.Curr() != colon {
+	if isOperator(str.Peek()) && str.Peek() != colon {
 		return nil
 	}
 	fp.Rule, err = str.ScanUntil(accept, delim)
@@ -609,44 +607,47 @@ func (fp *filterParser) build() (Filter, error) {
 }
 
 type scanner struct {
-	input []byte
-	ptr   int
+  input []byte
+  curr   int
+	next   int
 }
 
 func scan(str string) *scanner {
-	return &scanner{
-		input: []byte(str),
-	}
+  return &scanner{
+    input: []byte(str),
+  }
 }
 
 func (s *scanner) Back() {
-	if s.ptr == 0 {
-		return
-	}
-	_, z := utf8.DecodeLastRune(s.input[:s.ptr])
-	s.ptr -= z
+  if s.curr == 0 {
+    return
+  }
+	s.next = s.curr
+  _, z := utf8.DecodeLastRune(s.input[:s.curr])
+  s.curr -= z
 }
 
 func (s *scanner) Peek() rune {
-	r, _ := utf8.DecodeRune(s.input[s.ptr:])
-	return r
+  r, _ := utf8.DecodeRune(s.input[s.next:])
+  return r
 }
 
 func (s *scanner) Curr() rune {
-	if s.ptr == 0 {
-		return 0
-	}
-	r, _ := utf8.DecodeRune(s.input[s.ptr:])
-	return r
+  if s.curr == 0 {
+    return 0
+  }
+  r, _ := utf8.DecodeRune(s.input[s.curr:])
+  return r
 }
 
 func (s *scanner) Next() (rune, error) {
-	r, z := utf8.DecodeRune(s.input[s.ptr:])
-	if r == utf8.RuneError {
-		return 0, io.EOF
-	}
-	s.ptr += z
-	return r, nil
+  r, z := utf8.DecodeRune(s.input[s.next:])
+  if r == utf8.RuneError {
+    return 0, io.EOF
+  }
+	s.curr = s.next
+	s.next += z
+  return r, nil
 }
 
 func (s *scanner) ScanUntil(accept, delim func(rune) bool) (string, error) {
@@ -654,11 +655,10 @@ func (s *scanner) ScanUntil(accept, delim func(rune) bool) (string, error) {
 	for {
 		r, _ := s.Next()
 		if delim(r) {
-			s.Back()
 			break
 		}
 		if !accept(r) {
-			return "", illegalCharacter(r)
+			return "", fmt.Errorf("scan: %w", illegalCharacter(r))
 		}
 		buf.WriteRune(r)
 	}
@@ -666,10 +666,10 @@ func (s *scanner) ScanUntil(accept, delim func(rune) bool) (string, error) {
 }
 
 func (s *scanner) String() string {
-	if s.ptr >= len(s.input) {
+	if s.curr >= len(s.input) {
 		return ""
 	}
-	return string(s.input[s.ptr:])
+	return string(s.input[s.curr:])
 }
 
 func invalidOperator(prev, curr rune) error {
