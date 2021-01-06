@@ -507,23 +507,12 @@ func (fp *filterParser) parseAttr(str *scanner) error {
 	accept := func(r rune) bool {
 		return isDigit(r) || isLetter(r) || r == dot || r == minus
 	}
-	var buf bytes.Buffer
-	for {
-		r, err := str.Next()
-		if err != nil {
-			return err
-		}
-		if isOperator(r) {
-			str.Back()
-			break
-		}
-		if !accept(r) {
-			return illegalCharacter(r)
-		}
-		buf.WriteRune(r)
+	attr, err := str.ScanUntil(accept, isOperator)
+	if err == nil {
+		str.Back()
+		fp.Name = attr
 	}
-	fp.Name = buf.String()
-	return nil
+	return err
 }
 
 func (fp *filterParser) parseRule(str *scanner) error {
