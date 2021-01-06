@@ -539,26 +539,22 @@ func (fp *filterParser) parseRule(str *scanner) error {
 }
 
 func (fp *filterParser) parseValue(str *scanner) error {
-	var buf bytes.Buffer
+	accept := func(_ rune) bool {
+		return true
+	}
+	delim := func(r rune) bool {
+		return r == star || r == rparen
+	}
 	for {
-		r, err := str.Next()
+		value, err := str.ScanUntil(accept, delim)
 		if err != nil {
 			return err
 		}
-		if r == rparen {
+		fp.Values = append(fp.Values, value)
+		if str.Curr() == rparen {
 			break
 		}
-		if r == star {
-			fp.Values = append(fp.Values, buf.String())
-			buf.Reset()
-			continue
-		}
-		if r == backslash {
-			r, _ = str.Next()
-		}
-		buf.WriteRune(r)
 	}
-	fp.Values = append(fp.Values, buf.String())
 	switch n := len(fp.Values); fp.Type {
 	case tagFilterGreaterEq, tagFilterLesserEq, tagFilterApprox, tagFilterExtensible:
 		if n > 1 {

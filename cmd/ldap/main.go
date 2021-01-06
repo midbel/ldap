@@ -446,6 +446,9 @@ func runSearch(cmd *cli.Command, args []string) error {
 
 func PrintEntry(e ldap.Entry) {
 	fmt.Fprintf(os.Stdout, "dn: %s", e.Name)
+	if len(e.Attrs) == 0 {
+		return
+	}
 	fmt.Fprintln(os.Stdout)
 	for _, a := range e.Attrs {
 		if len(a.Values) == 0 {
