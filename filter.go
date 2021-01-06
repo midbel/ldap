@@ -240,6 +240,9 @@ func Substring(attr string, values []string) Filter {
 	s := substring{
 		attr: attr,
 	}
+	if len(values) == 0 {
+		return s
+	}
 	n := len(values) - 1
 	if values[0] != "" {
 		s.pre = values[0]
@@ -592,47 +595,47 @@ func (fp *filterParser) build() (Filter, error) {
 }
 
 type scanner struct {
-  input []byte
-  curr   int
-	next   int
+	input []byte
+	curr  int
+	next  int
 }
 
 func scan(str string) *scanner {
-  return &scanner{
-    input: []byte(str),
-  }
+	return &scanner{
+		input: []byte(str),
+	}
 }
 
 func (s *scanner) Back() {
-  if s.curr == 0 {
-    return
-  }
+	if s.curr == 0 {
+		return
+	}
 	s.next = s.curr
-  _, z := utf8.DecodeLastRune(s.input[:s.curr])
-  s.curr -= z
+	_, z := utf8.DecodeLastRune(s.input[:s.curr])
+	s.curr -= z
 }
 
 func (s *scanner) Peek() rune {
-  r, _ := utf8.DecodeRune(s.input[s.next:])
-  return r
+	r, _ := utf8.DecodeRune(s.input[s.next:])
+	return r
 }
 
 func (s *scanner) Curr() rune {
-  if s.curr == 0 {
-    return 0
-  }
-  r, _ := utf8.DecodeRune(s.input[s.curr:])
-  return r
+	if s.curr == 0 {
+		return 0
+	}
+	r, _ := utf8.DecodeRune(s.input[s.curr:])
+	return r
 }
 
 func (s *scanner) Next() (rune, error) {
-  r, z := utf8.DecodeRune(s.input[s.next:])
-  if r == utf8.RuneError {
-    return 0, io.EOF
-  }
+	r, z := utf8.DecodeRune(s.input[s.next:])
+	if r == utf8.RuneError {
+		return 0, io.EOF
+	}
 	s.curr = s.next
 	s.next += z
-  return r, nil
+	return r, nil
 }
 
 func (s *scanner) ScanUntil(accept, delim func(rune) bool) (string, error) {

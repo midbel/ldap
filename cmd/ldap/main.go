@@ -15,17 +15,25 @@ import (
 	"github.com/midbel/strrand"
 )
 
+const (
+	scopeBase   = "base"
+	scopeSingle = "single"
+	scopeOne    = "one"
+	scopeWhole  = "whole"
+	scopeTree   = "subtree"
+)
+
 type Scope struct {
 	Scope ldap.Scope
 }
 
 func (s *Scope) Set(str string) error {
 	switch strings.ToLower(str) {
-	case "base", "":
+	case "", scopeBase:
 		s.Scope = ldap.ScopeBase
-	case "one", "single":
+	case scopeOne, scopeSingle:
 		s.Scope = ldap.ScopeSingle
-	case "whole":
+	case scopeWhole, scopeTree:
 		s.Scope = ldap.ScopeWhole
 	default:
 		return fmt.Errorf("%s: invalid value for scope", str)
@@ -53,7 +61,7 @@ func (a *Attributes) Set(str string) error {
 }
 
 func (a *Attributes) String() string {
-	return "attributes"
+	return strings.Join(a.Attrs, ", ")
 }
 
 func (a *Attributes) Option() ldap.SearchOption {
@@ -113,7 +121,7 @@ var commands = []*cli.Command{
 		Usage: "bind [-u] [-p] [-r]",
 		Alias: []string{"auth"},
 		Short: "authenticate",
-		Run:   runDelete,
+		Run:   runBind,
 	},
 	{
 		Usage: "search [-u] [-p] [-r] [-t] [-a] <base> <filter>",
