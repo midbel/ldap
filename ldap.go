@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/midbel/ber"
 )
 
 const RFC4511 = 3
@@ -88,35 +90,13 @@ var codestrings = map[int]string{
 	80: "other",
 }
 
-const (
-	ldapBindRequest      uint64 = 0
-	ldapBindResponse            = 1
-	ldapUnbindRequest           = 2
-	ldapSearchRequest           = 3
-	ldapSearchResEntry          = 4
-	ldapSearchResDone           = 5
-	ldapSearchResRef            = 19
-	ldapModifyRequest           = 6
-	ldapModifyResponse          = 7
-	ldapAddRequest              = 8
-	ldapAddResponse             = 9
-	ldapDelRequest              = 10
-	ldapDelResponse             = 11
-	ldapModDNRequest            = 12
-	ldapModDNResponse           = 13
-	ldapCmpRequest              = 14
-	ldapCmpResponse             = 15
-	ldapAbandonRequest          = 16
-	ldapExtendedRequest         = 23
-	ldapExtendedResponse        = 24
-)
-
 type Entry struct {
 	Name  string
 	Attrs []Attribute
 }
 
 type Result struct {
+	Id         ber.Ident
 	Code       int
 	Name       string
 	Diagnostic string
@@ -143,6 +123,10 @@ func (r Result) Error() string {
 	str.WriteString(strconv.Itoa(r.Code))
 	str.WriteString(")")
 	return str.String()
+}
+
+func unexpectedType(id ber.Ident) error {
+	return fmt.Errorf("unexpected response type (class: %d, type: %d, tag: %d)", id.Class(), id.Type(), id.Tag())
 }
 
 type extendedRequest struct {

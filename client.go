@@ -14,11 +14,35 @@ const (
 	oidChangePasswd = "1.3.6.1.4.1.4203.1.11.1"
 )
 
+const (
+	ldapBindRequest      uint64 = 0
+	ldapBindResponse            = 1
+	ldapUnbindRequest           = 2
+	ldapSearchRequest           = 3
+	ldapSearchResEntry          = 4
+	ldapSearchResDone           = 5
+	ldapSearchResRef            = 19
+	ldapModifyRequest           = 6
+	ldapModifyResponse          = 7
+	ldapAddRequest              = 8
+	ldapAddResponse             = 9
+	ldapDelRequest              = 10
+	ldapDelResponse             = 11
+	ldapModDNRequest            = 12
+	ldapModDNResponse           = 13
+	ldapCmpRequest              = 14
+	ldapCmpResponse             = 15
+	ldapAbandonRequest          = 16
+	ldapExtendedRequest         = 23
+	ldapExtendedResponse        = 24
+)
+
 type Client struct {
 	conn net.Conn
 
-	mu    sync.Mutex
-	msgid uint32
+	mu     sync.Mutex
+	msgid  uint32
+	binded bool
 }
 
 func Open(addr string) (*Client, error) {
@@ -32,12 +56,12 @@ func Open(addr string) (*Client, error) {
 	return &client, nil
 }
 
-func BindTLS(addr, user, passwd string) (*Client, error) {
+func BindTLS(addr, user, passwd string, cfg *tls.Config) (*Client, error) {
 	c, err := Open(addr)
 	if err != nil {
 		return nil, err
 	}
-	if err := c.StartTLS(); err != nil {
+	if err := c.StartTLS(cfg); err != nil {
 		return nil, err
 	}
 	return c, c.Bind(user, passwd)
@@ -52,6 +76,9 @@ func Bind(addr, user, passwd string) (*Client, error) {
 }
 
 func (c *Client) Bind(user, passwd string) error {
+	if c.binded {
+		return nil
+	}
 	msg := struct {
 		Version int
 		Name    string `ber:"octetstr"`
@@ -61,11 +88,18 @@ func (c *Client) Bind(user, passwd string) error {
 		Name:    user,
 		Pass:    passwd,
 	}
-	return c.execute(msg, ldapBindRequest)
+	err := c.execute(msg, ldapBindRequest)
+	if err == nil {
+		c.binded = true
+	}
+	return err
 }
 
 func (c *Client) Unbind() error {
 	defer c.conn.Close()
+	if !c.binded {
+		return nil
+	}
 	msg := struct{}{}
 	return c.execute(msg, ldapUnbindRequest)
 }
@@ -138,14 +172,16 @@ func (c *Client) ModifyPassword(dn, curr, next string) error {
 	return c.execute(req, ldapExtendedRequest)
 }
 
-func (c *Client) StartTLS() error {
-	req := createExtendedRequest(oidStartTLS, nil)
-	err := c.execute(req, ldapExtendedRequest)
+func (c *Client) StartTLS(cfg *tls.Config) error {
+	if _, ok := c.conn.(*tls.Conn); ok {
+		return nil
+	}
+	var (
+		req = createExtendedRequest(oidStartTLS, nil)
+		err = c.execute(req, ldapExtendedRequest)
+	)
 	if err == nil {
-		cfg := tls.Config{
-			InsecureSkipVerify: true,
-		}
-		c.conn = tls.Client(c.conn, &cfg)
+		c.conn = tls.Client(c.conn, cfg)
 	}
 	return err
 }
@@ -268,6 +304,9 @@ func (c *Client) result(body []byte, app uint64) (Result, error) {
 	dec := ber.NewDecoder(body[:n])
 	if err := dec.Decode(&res); err != nil {
 		return res.Result, fmt.Errorf("%w: decoding response failed!", err)
+	}
+	if id := res.Result.Id; uint64(id.Tag()) != app {
+		return res.Result, unexpectedType(id)
 	}
 	if res.succeed() {
 		return res.Result, nil

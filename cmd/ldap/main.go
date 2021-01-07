@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/md5"
 	"crypto/sha1"
+	"crypto/tls"
 	"encoding/base64"
 	"flag"
 	"fmt"
@@ -81,7 +82,10 @@ type Client struct {
 func (c *Client) Bind() error {
 	var err error
 	if c.TLS {
-		c.Client, err = ldap.BindTLS(c.Addr, c.User, c.Pass)
+		cfg := tls.Config{
+			InsecureSkipVerify: true,
+		}
+		c.Client, err = ldap.BindTLS(c.Addr, c.User, c.Pass, &cfg)
 	} else {
 		c.Client, err = ldap.Bind(c.Addr, c.User, c.Pass)
 	}
