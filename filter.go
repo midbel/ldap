@@ -645,7 +645,15 @@ func (s *scanner) ScanUntil(accept, delim func(rune) bool) (string, error) {
 		if delim(r) {
 			break
 		}
-		if !accept(r) {
+		var escaped bool
+		if r == backslash {
+			if !isEscaped(s.Peek()) {
+				return "", fmt.Errorf("invalid escape sequence")
+			}
+			escaped = true
+			r, _ = s.Next()
+		}
+		if !escaped && !accept(r) {
 			return "", fmt.Errorf("scan: %w", illegalCharacter(r))
 		}
 		buf.WriteRune(r)
@@ -658,6 +666,10 @@ func (s *scanner) String() string {
 		return ""
 	}
 	return string(s.input[s.curr:])
+}
+
+func isEscaped(r rune) bool {
+	return r == star || r == lparen || r == rparen || r == backslash || r == null
 }
 
 func invalidOperator(prev, curr rune) error {
