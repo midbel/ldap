@@ -1,7 +1,6 @@
 package ldap
 
 import (
-	"strconv"
 	"strings"
 
 	"github.com/midbel/ber"
@@ -11,6 +10,7 @@ const (
 	ctrlProxyAuthOID = "2.16.840.1.113730.3.4.18"
 	ctrlPaginateOID  = "1.2.840.113556.1.4.319"
 	ctrlSortingOID   = "1.2.840.113556.1.4.473"
+  ctrlAssertionOID = "1.3.6.1.1.12"
 )
 
 type Control struct {
@@ -40,11 +40,11 @@ func ParseSortKey(str string) SortKey {
 		sk.Name = parts[0]
 	case 2:
 		sk.Name = parts[0]
-		sk.Reverse, _ = strconv.ParseBool(parts[1])
+		sk.Reverse = strings.ToLower(parts[1]) == "reverse"
 	default:
 		sk.Name = parts[0]
 		sk.Rule = parts[1]
-		sk.Reverse, _ = strconv.ParseBool(parts[2])
+		sk.Reverse = strings.ToLower(parts[2]) == "reverse"
 	}
 	return sk
 }

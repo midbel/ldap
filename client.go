@@ -77,7 +77,7 @@ func Bind(addr, user, passwd string) (*Client, error) {
 	return c, c.Bind(user, passwd)
 }
 
-func (c *Client) Bind(user, passwd string) error {
+func (c *Client) Bind(user, passwd string, controls ...Control) error {
 	if c.binded {
 		return nil
 	}
@@ -97,7 +97,7 @@ func (c *Client) Bind(user, passwd string) error {
 	return err
 }
 
-func (c *Client) Unbind() error {
+func (c *Client) Unbind(controls ...Control) error {
 	defer c.conn.Close()
 	if !c.binded {
 		return nil
@@ -146,7 +146,7 @@ func (c *Client) Whoami() (string, error) {
 	return res.Value, nil
 }
 
-func (c *Client) Modify(dn string, attrs []PartialAttribute) error {
+func (c *Client) Modify(dn string, attrs []PartialAttribute, controls ...Control) error {
 	msg := struct {
 		Name  string `ber:"octetstr"`
 		Attrs []PartialAttribute
@@ -157,7 +157,7 @@ func (c *Client) Modify(dn string, attrs []PartialAttribute) error {
 	return c.execute(msg, ldapModifyRequest)
 }
 
-func (c *Client) Add(dn string, attrs []Attribute) error {
+func (c *Client) Add(dn string, attrs []Attribute, controls ...Control) error {
 	msg := struct {
 		Name  string `ber:"octetstr"`
 		Attrs []Attribute
@@ -168,11 +168,11 @@ func (c *Client) Add(dn string, attrs []Attribute) error {
 	return c.execute(msg, ldapAddRequest)
 }
 
-func (c *Client) Delete(dn string) error {
+func (c *Client) Delete(dn string, controls ...Control) error {
 	return c.execute([]byte(dn), ldapDelRequest)
 }
 
-func (c *Client) ModifyPassword(dn, curr, next string) error {
+func (c *Client) ModifyPassword(dn, curr, next string, controls ...Control) error {
 	msg := struct {
 		Name string `ber:"class:0x2,tag:0x0,omitempty"`
 		Old  string `ber:"class:0x2,tag:0x1,omitempty"`
@@ -186,7 +186,7 @@ func (c *Client) ModifyPassword(dn, curr, next string) error {
 	return c.execute(req, ldapExtendedRequest)
 }
 
-func (c *Client) StartTLS(cfg *tls.Config) error {
+func (c *Client) StartTLS(cfg *tls.Config, controls ...Control) error {
 	if _, ok := c.conn.(*tls.Conn); ok {
 		return nil
 	}
@@ -198,7 +198,7 @@ func (c *Client) StartTLS(cfg *tls.Config) error {
 	return err
 }
 
-func (c *Client) Rename(dn, rdn string, keep bool) error {
+func (c *Client) Rename(dn, rdn string, keep bool, controls ...Control) error {
 	msg := struct {
 		Name  string `ber:"octetstr"`
 		Value string `ber:"octetstr"`
@@ -211,7 +211,7 @@ func (c *Client) Rename(dn, rdn string, keep bool) error {
 	return c.execute(msg, ldapModDNRequest)
 }
 
-func (c *Client) Move(dn, parent string) error {
+func (c *Client) Move(dn, parent string, controls ...Control) error {
 	name, err := Explode(dn)
 	if err != nil {
 		return err
@@ -230,7 +230,7 @@ func (c *Client) Move(dn, parent string) error {
 	return c.execute(msg, ldapModDNRequest)
 }
 
-func (c *Client) Compare(dn string, ava AttributeAssertion) (bool, error) {
+func (c *Client) Compare(dn string, ava AttributeAssertion, controls ...Control) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -255,11 +255,11 @@ func (c *Client) Compare(dn string, ava AttributeAssertion) (bool, error) {
 	return res.Code == CompareTrue, err
 }
 
-// func (c *Client) Abandon(msgid int) error {
+// func (c *Client) Abandon(msgid int, controls ...Control) error {
 // 	return nil
 // }
 //
-// func (c *Client) Cancel(msgid int) error {
+// func (c *Client) Cancel(msgid int, controls ...Control) error {
 // 	return nil
 // }
 
