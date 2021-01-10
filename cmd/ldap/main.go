@@ -24,6 +24,33 @@ const (
 	scopeTree   = "subtree"
 )
 
+type Filter struct {
+	ldap.Filter
+}
+
+func (f *Filter) Set(str string) error {
+	fil, err := ldap.ParseFilter(str)
+	if err == nil {
+		f.Filter = fil
+	}
+	return err
+}
+
+func (f *Filter) String() string {
+	return "filter"
+}
+
+func (f *Filter) Control() ldap.Control {
+	if f.Filter == nil {
+		f.Filter = ldap.Present("objectClass")
+	}
+	return ldap.Assert(f.Filter)
+}
+
+func (f *Filter) Option() ldap.SearchOption {
+	return ldap.WithControl(f.Control())
+}
+
 type OrderBy struct {
 	Keys []ldap.SortKey
 }
@@ -277,7 +304,11 @@ func runExplode(cmd *cli.Command, args []string) error {
 }
 
 func runModifyPasswd(cmd *cli.Command, args []string) error {
-	var client Client
+	var (
+		client Client
+		filter Filter
+	)
+	cmd.Flag.Var(&filter, "f", "assertion filter")
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
@@ -300,11 +331,15 @@ func runModifyPasswd(cmd *cli.Command, args []string) error {
 		old = ""
 		user = cmd.Flag.Arg(0)
 	}
-	return client.ModifyPassword(user, old, pass)
+	return client.ModifyPassword(user, old, pass, filter.Control())
 }
 
 func runBind(cmd *cli.Command, args []string) error {
-	var client Client
+	var (
+		client Client
+		filter Filter
+	)
+	cmd.Flag.Var(&filter, "f", "assertion filter")
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
@@ -320,7 +355,11 @@ func runBind(cmd *cli.Command, args []string) error {
 }
 
 func runWhoami(cmd *cli.Command, args []string) error {
-	var client Client
+	var (
+		client Client
+		filter Filter
+	)
+	cmd.Flag.Var(&filter, "f", "assertion filter")
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
@@ -333,7 +372,7 @@ func runWhoami(cmd *cli.Command, args []string) error {
 		return err
 	}
 	defer client.Unbind()
-	who, err := client.Whoami()
+	who, err := client.Whoami(filter.Control())
 	if err == nil {
 		fmt.Fprintln(os.Stdout, strings.TrimPrefix(who, "dn:"))
 	}
@@ -341,7 +380,11 @@ func runWhoami(cmd *cli.Command, args []string) error {
 }
 
 func runExec(cmd *cli.Command, args []string) error {
-	var client Client
+	var (
+		client Client
+		filter Filter
+	)
+	cmd.Flag.Var(&filter, "f", "assertion filter")
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
@@ -364,7 +407,11 @@ func runExec(cmd *cli.Command, args []string) error {
 }
 
 func runMove(cmd *cli.Command, args []string) error {
-	var client Client
+	var (
+		client Client
+		filter Filter
+	)
+	cmd.Flag.Var(&filter, "f", "assertion filter")
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
@@ -378,14 +425,16 @@ func runMove(cmd *cli.Command, args []string) error {
 	}
 	defer client.Unbind()
 
-	return client.Move(cmd.Flag.Arg(0), cmd.Flag.Arg(1))
+	return client.Move(cmd.Flag.Arg(0), cmd.Flag.Arg(1), filter.Control())
 }
 
 func runRename(cmd *cli.Command, args []string) error {
 	var (
-		client Client
 		keep   bool
+		client Client
+		filter Filter
 	)
+	cmd.Flag.Var(&filter, "f", "assertion filter")
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
@@ -400,11 +449,15 @@ func runRename(cmd *cli.Command, args []string) error {
 	}
 	defer client.Unbind()
 
-	return client.Rename(cmd.Flag.Arg(0), cmd.Flag.Arg(1), keep)
+	return client.Rename(cmd.Flag.Arg(0), cmd.Flag.Arg(1), keep, filter.Control())
 }
 
 func runDelete(cmd *cli.Command, args []string) error {
-	var client Client
+	var (
+		client Client
+		filter Filter
+	)
+	cmd.Flag.Var(&filter, "f", "assertion filter")
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
@@ -419,7 +472,7 @@ func runDelete(cmd *cli.Command, args []string) error {
 	defer client.Unbind()
 
 	for _, a := range cmd.Flag.Args() {
-		if err := client.Delete(a); err != nil {
+		if err := client.Delete(a, filter.Control()); err != nil {
 			fmt.Fprintf(os.Stderr, "fail to delete %s: %s", a, err)
 			fmt.Fprintln(os.Stderr)
 		}
@@ -428,7 +481,11 @@ func runDelete(cmd *cli.Command, args []string) error {
 }
 
 func runCompare(cmd *cli.Command, args []string) error {
-	var client Client
+	var (
+		client Client
+		filter Filter
+	)
+	cmd.Flag.Var(&filter, "f", "assert")
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
@@ -447,7 +504,7 @@ func runCompare(cmd *cli.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		ok, err := client.Compare(cmd.Flag.Arg(0), ava)
+		ok, err := client.Compare(cmd.Flag.Arg(0), ava, filter.Control())
 		if err != nil {
 			return err
 		}
@@ -468,8 +525,10 @@ func runSearch(cmd *cli.Command, args []string) error {
 		order  OrderBy
 		types  bool
 		limit  int
+		filter Filter
 		client Client
 	)
+	cmd.Flag.Var(&filter, "f", "assertion filter")
 	cmd.Flag.Var(&attr, "a", "")
 	cmd.Flag.Var(&scope, "s", "")
 	cmd.Flag.Var(&order, "o", "")
@@ -494,6 +553,7 @@ func runSearch(cmd *cli.Command, args []string) error {
 		attr.Option(),
 		scope.Option(),
 		order.Option(),
+		filter.Option(),
 	}
 	if cmd.Flag.NArg() > 1 {
 		filter, err := ldap.ParseFilter(cmd.Flag.Arg(1))

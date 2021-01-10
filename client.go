@@ -90,7 +90,7 @@ func (c *Client) Bind(user, passwd string, controls ...Control) error {
 		Name:    user,
 		Pass:    passwd,
 	}
-	err := c.execute(msg, ldapBindRequest)
+	err := c.execute(msg, ldapBindRequest, controls)
 	if err == nil {
 		c.binded = true
 	}
@@ -103,7 +103,7 @@ func (c *Client) Unbind(controls ...Control) error {
 		return nil
 	}
 	msg := struct{}{}
-	return c.execute(msg, ldapUnbindRequest)
+	return c.execute(msg, ldapUnbindRequest, controls)
 }
 
 func (c *Client) Search(base string, options ...SearchOption) ([]Entry, error) {
@@ -137,9 +137,9 @@ func (c *Client) Search(base string, options ...SearchOption) ([]Entry, error) {
 	return c.search(body)
 }
 
-func (c *Client) Whoami() (string, error) {
+func (c *Client) Whoami(controls ...Control) (string, error) {
 	req := createExtendedRequest(oidWhoami, nil)
-	res, err := c.executeExtended(req)
+	res, err := c.executeExtended(req, controls)
 	if err != nil {
 		return "", err
 	}
@@ -154,7 +154,7 @@ func (c *Client) Modify(dn string, attrs []PartialAttribute, controls ...Control
 		Name:  dn,
 		Attrs: attrs,
 	}
-	return c.execute(msg, ldapModifyRequest)
+	return c.execute(msg, ldapModifyRequest, controls)
 }
 
 func (c *Client) Add(dn string, attrs []Attribute, controls ...Control) error {
@@ -165,11 +165,11 @@ func (c *Client) Add(dn string, attrs []Attribute, controls ...Control) error {
 		Name:  dn,
 		Attrs: attrs,
 	}
-	return c.execute(msg, ldapAddRequest)
+	return c.execute(msg, ldapAddRequest, controls)
 }
 
 func (c *Client) Delete(dn string, controls ...Control) error {
-	return c.execute([]byte(dn), ldapDelRequest)
+	return c.execute([]byte(dn), ldapDelRequest, controls)
 }
 
 func (c *Client) ModifyPassword(dn, curr, next string, controls ...Control) error {
@@ -183,7 +183,7 @@ func (c *Client) ModifyPassword(dn, curr, next string, controls ...Control) erro
 		New:  next,
 	}
 	req := createExtendedRequest(oidChangePasswd, msg)
-	return c.execute(req, ldapExtendedRequest)
+	return c.execute(req, ldapExtendedRequest, controls)
 }
 
 func (c *Client) StartTLS(cfg *tls.Config, controls ...Control) error {
@@ -191,7 +191,7 @@ func (c *Client) StartTLS(cfg *tls.Config, controls ...Control) error {
 		return nil
 	}
 	req := createExtendedRequest(oidStartTLS, nil)
-	_, err := c.executeExtended(req)
+	_, err := c.executeExtended(req, controls)
 	if err == nil {
 		c.conn = tls.Client(c.conn, cfg)
 	}
@@ -208,7 +208,7 @@ func (c *Client) Rename(dn, rdn string, keep bool, controls ...Control) error {
 		Value: rdn,
 		Keep:  keep,
 	}
-	return c.execute(msg, ldapModDNRequest)
+	return c.execute(msg, ldapModDNRequest, controls)
 }
 
 func (c *Client) Move(dn, parent string, controls ...Control) error {
@@ -227,7 +227,7 @@ func (c *Client) Move(dn, parent string, controls ...Control) error {
 		Keep:   false,
 		Parent: parent,
 	}
-	return c.execute(msg, ldapModDNRequest)
+	return c.execute(msg, ldapModDNRequest, controls)
 }
 
 func (c *Client) Compare(dn string, ava AttributeAssertion, controls ...Control) (bool, error) {
@@ -247,6 +247,9 @@ func (c *Client) Compare(dn string, ava AttributeAssertion, controls ...Control)
 	var e ber.Encoder
 	e.EncodeInt(int64(c.msgid))
 	e.EncodeWithIdent(cmp, ber.NewConstructed(ldapCmpRequest).Application())
+	if len(controls) > 0 {
+		e.EncodeWithIdent(controls, ber.NewConstructed(0).Context())
+	}
 	body, err := e.AsSequence()
 	if err != nil {
 		return false, err
@@ -263,7 +266,7 @@ func (c *Client) Compare(dn string, ava AttributeAssertion, controls ...Control)
 // 	return nil
 // }
 
-func (c *Client) executeExtended(msg interface{}) (extendedResponse, error) {
+func (c *Client) executeExtended(msg interface{}, controls []Control) (extendedResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -272,6 +275,9 @@ func (c *Client) executeExtended(msg interface{}) (extendedResponse, error) {
 	var e ber.Encoder
 	e.EncodeInt(int64(c.msgid))
 	e.EncodeWithIdent(msg, ber.NewConstructed(ldapExtendedRequest).Application())
+	if len(controls) > 0 {
+		e.EncodeWithIdent(controls, ber.NewConstructed(0).Context())
+	}
 	body, err := e.AsSequence()
 	if err != nil {
 		return extendedResponse{}, err
@@ -280,7 +286,7 @@ func (c *Client) executeExtended(msg interface{}) (extendedResponse, error) {
 	return c.extendedResult(body)
 }
 
-func (c *Client) execute(msg interface{}, app uint64) error {
+func (c *Client) execute(msg interface{}, app uint64, controls []Control) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -297,6 +303,9 @@ func (c *Client) execute(msg interface{}, app uint64) error {
 	var e ber.Encoder
 	e.EncodeInt(int64(c.msgid))
 	e.EncodeWithIdent(msg, id.Application())
+	if len(controls) > 0 {
+		e.EncodeWithIdent(controls, ber.NewConstructed(0).Context())
+	}
 	body, err := e.AsSequence()
 	if err != nil {
 		return err

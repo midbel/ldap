@@ -55,6 +55,7 @@ const (
 	NoSuchOperation           = 119
 	TooLate                   = 120
 	CannotCancel              = 121
+	AssertionFailed           = 122
 	ProxyAuthId               = 123
 )
 
@@ -97,6 +98,7 @@ var codestrings = map[int64]string{
 	119: "no such operation",
 	120: "too late",
 	121: "cannot cancel",
+	122: "assertion failed",
 	123: "proxy authorization identity refused",
 }
 

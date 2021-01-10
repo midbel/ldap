@@ -40,14 +40,14 @@ const (
 )
 
 type searchRequest struct {
-	Base   string `ber:"tag:0x4"`
-	Scope  Scope  `ber:"tag:0xa"`
-	Deref  Deref  `ber:"tag:0xa"`
-	Size   int
-	Delay  int
-	Types  bool
-	Filter Filter
-	Attrs  [][]byte
+	Base     string `ber:"tag:0x4"`
+	Scope    Scope  `ber:"tag:0xa"`
+	Deref    Deref  `ber:"tag:0xa"`
+	Size     int
+	Delay    int
+	Types    bool
+	Filter   Filter
+	Attrs    [][]byte
 	controls []Control `ber:"-"`
 }
 
