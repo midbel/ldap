@@ -21,10 +21,11 @@ const (
 	ModAdd ChangeType = iota
 	ModDelete
 	ModReplace
+	ModIncrement
 )
 
 func (c ChangeType) IsValid() bool {
-	return c <= ModReplace
+	return c <= ModIncrement
 }
 
 type PartialAttribute struct {
@@ -66,6 +67,7 @@ const (
 	ldifDel    = "delete"
 	ldifMod    = "modify"
 	ldifRep    = "replace"
+	ldifInc    = "increment"
 )
 
 func parseChange(rs *bufio.Reader, cg *Change) (ChangeType, error) {
@@ -116,6 +118,8 @@ func parseModify(rs *bufio.Reader, cg *Change) error {
 			pa.Mod = ModDelete
 		case ldifRep:
 			pa.Mod = ModReplace
+		case ldifInc:
+			pa.Mod = ModIncrement
 		default:
 			return fmt.Errorf("%s: unknown operation", name)
 		}
