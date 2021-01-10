@@ -48,9 +48,17 @@ type searchRequest struct {
 	Types  bool
 	Filter Filter
 	Attrs  [][]byte
+	controls []Control `ber:"-"`
 }
 
 type SearchOption func(*searchRequest) error
+
+func WithControl(ctrl Control) SearchOption {
+	return func(sr *searchRequest) error {
+		sr.controls = append(sr.controls, ctrl)
+		return nil
+	}
+}
 
 func WithFilter(filter Filter) SearchOption {
 	return func(sr *searchRequest) error {

@@ -12,6 +12,8 @@ import (
 const (
 	oidStartTLS     = "1.3.6.1.4.1.1466.20037"
 	oidChangePasswd = "1.3.6.1.4.1.4203.1.11.1"
+	oidWhoami       = "1.3.6.1.4.1.4203.1.11.3"
+	oidCancel       = "1.3.6.1.1.8"
 )
 
 const (
@@ -125,11 +127,23 @@ func (c *Client) Search(base string, options ...SearchOption) ([]Entry, error) {
 	var e ber.Encoder
 	e.EncodeInt(int64(c.msgid))
 	e.EncodeWithIdent(search, ber.NewConstructed(ldapSearchRequest).Application())
+	if cs := search.controls; len(cs) > 0 {
+		e.EncodeWithIdent(cs, ber.NewConstructed(0).Context())
+	}
 	body, err := e.AsSequence()
 	if err != nil {
 		return nil, err
 	}
 	return c.search(body)
+}
+
+func (c *Client) Whoami() (string, error) {
+	req := createExtendedRequest(oidWhoami, nil)
+	res, err := c.executeExtended(req)
+	if err != nil {
+		return "", err
+	}
+	return res.Value, nil
 }
 
 func (c *Client) Modify(dn string, attrs []PartialAttribute) error {
@@ -176,10 +190,8 @@ func (c *Client) StartTLS(cfg *tls.Config) error {
 	if _, ok := c.conn.(*tls.Conn); ok {
 		return nil
 	}
-	var (
-		req = createExtendedRequest(oidStartTLS, nil)
-		err = c.execute(req, ldapExtendedRequest)
-	)
+	req := createExtendedRequest(oidStartTLS, nil)
+	_, err := c.executeExtended(req)
 	if err == nil {
 		c.conn = tls.Client(c.conn, cfg)
 	}
@@ -243,6 +255,31 @@ func (c *Client) Compare(dn string, ava AttributeAssertion) (bool, error) {
 	return res.Code == CompareTrue, err
 }
 
+// func (c *Client) Abandon(msgid int) error {
+// 	return nil
+// }
+//
+// func (c *Client) Cancel(msgid int) error {
+// 	return nil
+// }
+
+func (c *Client) executeExtended(msg interface{}) (extendedResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.msgid++
+
+	var e ber.Encoder
+	e.EncodeInt(int64(c.msgid))
+	e.EncodeWithIdent(msg, ber.NewConstructed(ldapExtendedRequest).Application())
+	body, err := e.AsSequence()
+	if err != nil {
+		return extendedResponse{}, err
+	}
+
+	return c.extendedResult(body)
+}
+
 func (c *Client) execute(msg interface{}, app uint64) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -278,11 +315,37 @@ func (c *Client) execute(msg interface{}, app uint64) error {
 		app = ldapDelResponse
 	case ldapModDNRequest:
 		app = ldapModDNResponse
-	case ldapExtendedRequest:
-		app = ldapExtendedResponse
 	}
 	_, err = c.result(body, app)
 	return err
+}
+
+func (c *Client) extendedResult(body []byte) (extendedResponse, error) {
+	var res extendedResponse
+	if _, err := c.conn.Write(body); err != nil {
+		return res, err
+	}
+
+	body = make([]byte, 1<<15)
+	n, err := c.conn.Read(body)
+	if err != nil {
+		return res, err
+	}
+
+	var (
+		msg rawMessage
+		dec = ber.NewDecoder(body[:n])
+	)
+	if err := dec.Decode(&msg); err != nil {
+		return res, err
+	}
+	if err := msg.Decode(&res); err != nil {
+		return res, err
+	}
+	if res.succeed() {
+		return res, nil
+	}
+	return res, res.Result
 }
 
 func (c *Client) result(body []byte, app uint64) (Result, error) {
@@ -297,21 +360,21 @@ func (c *Client) result(body []byte, app uint64) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	res := struct {
-		Id int
-		Result
-	}{}
-	dec := ber.NewDecoder(body[:n])
-	if err := dec.Decode(&res); err != nil {
-		return res.Result, fmt.Errorf("%w: decoding response failed!", err)
+	var (
+		res Result
+		msg rawMessage
+		dec = ber.NewDecoder(body[:n])
+	)
+	if err := dec.Decode(&msg); err != nil {
+		return res, err
 	}
-	if id := res.Result.Id; uint64(id.Tag()) != app {
-		return res.Result, unexpectedType(id)
+	if err := msg.Decode(&res); err != nil {
+		return res, err
 	}
 	if res.succeed() {
-		return res.Result, nil
+		return res, nil
 	}
-	return res.Result, res.Result
+	return res, res
 }
 
 func (c *Client) search(body []byte) ([]Entry, error) {
@@ -332,7 +395,7 @@ func (c *Client) search(body []byte) ([]Entry, error) {
 		}
 		dec.Append(body[:n])
 		for dec.Can() && !done {
-			var msg searchMessage
+			var msg rawMessage
 			if err := dec.Decode(&msg); err != nil {
 				return nil, err
 			}
@@ -361,16 +424,23 @@ func (c *Client) search(body []byte) ([]Entry, error) {
 	return es, nil
 }
 
-type searchMessage struct {
+type rawMessage struct {
 	Id   int
 	Body ber.Raw
 }
 
-func (sm searchMessage) Empty() bool {
-	return len(sm.Body) == 0
+func (r rawMessage) Empty() bool {
+	return len(r.Body) == 0
 }
 
-func (sm searchMessage) Decode(val interface{}) error {
-	d := ber.NewDecoder([]byte(sm.Body))
+func (r rawMessage) Decode(val interface{}) error {
+	d := ber.NewDecoder([]byte(r.Body))
+	if r.Id == 0 {
+		var e extendedResponse
+		if err := d.Decode(&e); err != nil {
+			return err
+		}
+		return e.Result
+	}
 	return d.Decode(val)
 }

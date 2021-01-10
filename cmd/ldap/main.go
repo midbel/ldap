@@ -24,6 +24,25 @@ const (
 	scopeTree   = "subtree"
 )
 
+type OrderBy struct {
+	Keys []ldap.SortKey
+}
+
+func (o *OrderBy) Set(str string) error {
+	for _, str := range strings.Split(str, ",") {
+		o.Keys = append(o.Keys, ldap.ParseSortKey(str))
+	}
+	return nil
+}
+
+func (o *OrderBy) String() string {
+	return "order by"
+}
+
+func (o *OrderBy) Option() ldap.SearchOption {
+	return ldap.WithControl(ldap.Sort(o.Keys...))
+}
+
 type Scope struct {
 	Scope ldap.Scope
 }
@@ -77,6 +96,23 @@ type Client struct {
 	Cert string
 	Addr string
 	TLS  bool
+}
+
+func (c *Client) Search(base string, options []ldap.SearchOption) error {
+	es, err := c.Client.Search(base, options...)
+	if err != nil {
+		return err
+	}
+	for i, e := range es {
+		if e.Name == flag.Arg(1) {
+			continue
+		}
+		if i > 0 {
+			fmt.Fprintln(os.Stdout)
+		}
+		PrintEntry(e)
+	}
+	return nil
 }
 
 func (c *Client) Bind() error {
@@ -166,6 +202,11 @@ var commands = []*cli.Command{
 		Usage: "password [-u] [-p] [-r] [<dn>]",
 		Short: "modify password",
 		Run:   runModifyPasswd,
+	},
+	{
+		Usage: "whoami [-u] [-p] [-r] ",
+		Short: "whoami request",
+		Run:   runWhoami,
 	},
 	// {
 	// 	Usage: "explode <dn...>",
@@ -276,6 +317,27 @@ func runBind(cmd *cli.Command, args []string) error {
 		return err
 	}
 	return client.Unbind()
+}
+
+func runWhoami(cmd *cli.Command, args []string) error {
+	var client Client
+	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
+	cmd.Flag.StringVar(&client.User, "u", "", "user")
+	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
+	cmd.Flag.BoolVar(&client.TLS, "z", false, "start tls")
+	if err := cmd.Flag.Parse(args); err != nil {
+		return err
+	}
+
+	if err := client.Bind(); err != nil {
+		return err
+	}
+	defer client.Unbind()
+	who, err := client.Whoami()
+	if err == nil {
+		fmt.Fprintln(os.Stdout, strings.TrimPrefix(who, "dn:"))
+	}
+	return err
 }
 
 func runExec(cmd *cli.Command, args []string) error {
@@ -403,12 +465,14 @@ func runSearch(cmd *cli.Command, args []string) error {
 	var (
 		attr   Attributes
 		scope  Scope
+		order  OrderBy
 		types  bool
 		limit  int
 		client Client
 	)
 	cmd.Flag.Var(&attr, "a", "")
 	cmd.Flag.Var(&scope, "s", "")
+	cmd.Flag.Var(&order, "o", "")
 	cmd.Flag.BoolVar(&types, "t", false, "types only")
 	cmd.Flag.IntVar(&limit, "n", 0, "limit number of entries returned")
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
@@ -425,12 +489,11 @@ func runSearch(cmd *cli.Command, args []string) error {
 	defer client.Unbind()
 
 	options := []ldap.SearchOption{
-		ldap.WithScope(ldap.ScopeWhole),
 		ldap.WithTypes(types),
-		ldap.WithAttributes(attr.Attrs),
+		ldap.WithLimit(limit),
 		attr.Option(),
 		scope.Option(),
-		ldap.WithLimit(limit),
+		order.Option(),
 	}
 	if cmd.Flag.NArg() > 1 {
 		filter, err := ldap.ParseFilter(cmd.Flag.Arg(1))
@@ -439,21 +502,7 @@ func runSearch(cmd *cli.Command, args []string) error {
 		}
 		options = append(options, ldap.WithFilter(filter))
 	}
-
-	es, err := client.Search(cmd.Flag.Arg(0), options...)
-	if err != nil {
-		return err
-	}
-	for i, e := range es {
-		if e.Name == flag.Arg(1) {
-			continue
-		}
-		if i > 0 {
-			fmt.Fprintln(os.Stdout)
-		}
-		PrintEntry(e)
-	}
-	return nil
+	return client.Search(cmd.Flag.Arg(0), options)
 }
 
 func PrintEntry(e ldap.Entry) {

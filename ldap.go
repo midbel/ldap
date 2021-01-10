@@ -51,43 +51,53 @@ const (
 	ObjectClassModsProhibited = 69
 	AffectMultipleDSA         = 71
 	Other                     = 80
+	Canceled                  = 118
+	NoSuchOperation           = 119
+	TooLate                   = 120
+	CannotCancel              = 121
+	ProxyAuthId               = 123
 )
 
-var codestrings = map[int]string{
-	1:  "operation error",
-	2:  "protocol error",
-	3:  "time limit exeeded",
-	4:  "size limit exeeded",
-	7:  "authentication method not supported",
-	8:  "stronger authentication required",
-	11: "admin limit exeeded",
-	12: "unavailable critical extension",
-	13: "confidentialty required",
-	16: "no such attribute",
-	17: "undefined attribute type",
-	18: "inappropriate matching",
-	19: "constraint violation",
-	20: "attribute or value exists",
-	21: "invalid attribute syntax",
-	32: "no such object",
-	33: "alias problem",
-	34: "invalid dn syntax",
-	36: "alias dereferencing problem",
-	48: "inappropriate authentication method",
-	49: "invalid credentials",
-	50: "insufficient access rights",
-	51: "busy",
-	52: "unavailable",
-	53: "unwilling to perform",
-	54: "loop detect",
-	64: "naming violation",
-	65: "objectclass violation",
-	66: "not allowed on non leaf",
-	67: "not allowed on rdn",
-	68: "entry already exists",
-	69: "objectclass mods prohibited",
-	71: "affect multiple dsas",
-	80: "other",
+var codestrings = map[int64]string{
+	1:   "operation error",
+	2:   "protocol error",
+	3:   "time limit exeeded",
+	4:   "size limit exeeded",
+	7:   "authentication method not supported",
+	8:   "stronger authentication required",
+	11:  "admin limit exeeded",
+	12:  "unavailable critical extension",
+	13:  "confidentialty required",
+	16:  "no such attribute",
+	17:  "undefined attribute type",
+	18:  "inappropriate matching",
+	19:  "constraint violation",
+	20:  "attribute or value exists",
+	21:  "invalid attribute syntax",
+	32:  "no such object",
+	33:  "alias problem",
+	34:  "invalid dn syntax",
+	36:  "alias dereferencing problem",
+	48:  "inappropriate authentication method",
+	49:  "invalid credentials",
+	50:  "insufficient access rights",
+	51:  "busy",
+	52:  "unavailable",
+	53:  "unwilling to perform",
+	54:  "loop detect",
+	64:  "naming violation",
+	65:  "objectclass violation",
+	66:  "not allowed on non leaf",
+	67:  "not allowed on rdn",
+	68:  "entry already exists",
+	69:  "objectclass mods prohibited",
+	71:  "affect multiple dsas",
+	80:  "other",
+	118: "canceled",
+	119: "no such operation",
+	120: "too late",
+	121: "cannot cancel",
+	123: "proxy authorization identity refused",
 }
 
 type Entry struct {
@@ -95,12 +105,22 @@ type Entry struct {
 	Attrs []Attribute
 }
 
+type Message struct {
+	Id       uint32
+	Body     interface{}
+	Controls []Control `ber:"omitempty"`
+}
+
 type Result struct {
 	Id         ber.Ident
-	Code       int
+	Code       int64
 	Name       string
 	Diagnostic string
-	Referals   []string
+	Referral   []string
+}
+
+func (r *Result) Unmarshal(b []byte) error {
+	return unmarshalResult(ber.NewDecoder(b), r)
 }
 
 func (r Result) succeed() bool {
@@ -120,7 +140,7 @@ func (r Result) Error() string {
 		str.WriteString(r.Diagnostic)
 	}
 	str.WriteString(" (")
-	str.WriteString(strconv.Itoa(r.Code))
+	str.WriteString(strconv.FormatInt(r.Code, 10))
 	str.WriteString(")")
 	return str.String()
 }
@@ -154,6 +174,46 @@ type extendedResponse struct {
 	Result
 	Name  string
 	Value string
+}
+
+func (e *extendedResponse) Unmarshal(b []byte) error {
+	var (
+		dec = ber.NewDecoder(b)
+		err error
+	)
+	if err = unmarshalResult(dec, &e.Result); err != nil {
+		return err
+	}
+	if id, err1 := dec.Peek(); err1 == nil && id.Tag() == 10 {
+		e.Name, err = dec.DecodeString()
+		if err != nil {
+			return err
+		}
+	}
+	if id, err1 := dec.Peek(); err1 == nil && id.Tag() == 11 {
+		e.Value, err = dec.DecodeString()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func unmarshalResult(d *ber.Decoder, r *Result) error {
+	var err error
+	if r.Code, err = d.DecodeInt(); err != nil {
+		return err
+	}
+	if r.Name, err = d.DecodeString(); err != nil {
+		return err
+	}
+	if r.Diagnostic, err = d.DecodeString(); err != nil {
+		return err
+	}
+	if r.Code == Referral {
+		err = d.Decode(&r.Referral)
+	}
+	return err
 }
 
 type Attribute struct {
@@ -229,6 +289,7 @@ const (
 	rparen    = ')'
 	bang      = '!'
 	tilde     = '~'
+	null      = 0
 )
 
 func isDigit(r rune) bool {
