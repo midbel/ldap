@@ -11,6 +11,8 @@ const (
 	ctrlPaginateOID  = "1.2.840.113556.1.4.319"
 	ctrlSortingOID   = "1.2.840.113556.1.4.473"
 	ctrlAssertionOID = "1.3.6.1.1.12"
+	ctrlPreReadOID   = "1.3.6.1.1.13.1"
+	ctrlPostReadOID  = "1.3.6.1.1.13.2"
 )
 
 type Control struct {
@@ -73,6 +75,30 @@ func Assert(filter Filter) Control {
 	var e ber.Encoder
 	e.Encode(filter)
 	return createControl(ctrlAssertionOID, e.Bytes(), true)
+}
+
+func PreRead(attrs []string) Control {
+	var (
+		e  ber.Encoder
+		as [][]byte
+	)
+	for _, a := range attrs {
+		as = append(as, []byte(a))
+	}
+	e.Encode(as)
+	return createControl(ctrlPreReadOID, e.Bytes(), false)
+}
+
+func PostRead(attrs []string) Control {
+	var (
+		e  ber.Encoder
+		as [][]byte
+	)
+	for _, a := range attrs {
+		as = append(as, []byte(a))
+	}
+	e.Encode(as)
+	return createControl(ctrlPostReadOID, e.Bytes(), false)
 }
 
 func createControl(oid string, value []byte, critical bool) Control {

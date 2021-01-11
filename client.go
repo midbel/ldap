@@ -433,9 +433,43 @@ func (c *Client) search(body []byte) ([]Entry, error) {
 	return es, nil
 }
 
+type controlResponse struct {
+	OID   string
+	Value interface{}
+}
+
+func (c *controlResponse) Unmarshal(b []byte) error {
+	var (
+		dec = ber.NewDecoder(b)
+		raw []byte
+		err error
+	)
+	c.OID, err = dec.DecodeString()
+	if err != nil {
+		return err
+	}
+	raw, err = dec.DecodeBytes()
+	if err != nil {
+		return err
+	}
+	dec.Reset(raw)
+	switch c.OID {
+	default:
+		return fmt.Errorf("%s: unsupported control response", c.OID)
+	case ctrlPreReadOID, ctrlPostReadOID:
+		var e Entry
+		err = dec.Decode(&e)
+		if err == nil {
+			c.Value = e
+		}
+	}
+	return err
+}
+
 type rawMessage struct {
-	Id   int
-	Body ber.Raw
+	Id       int
+	Body     ber.Raw
+	Controls []controlResponse
 }
 
 func (r rawMessage) Empty() bool {
