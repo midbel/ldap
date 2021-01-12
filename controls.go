@@ -7,12 +7,13 @@ import (
 )
 
 const (
-	ctrlProxyAuthOID = "2.16.840.1.113730.3.4.18"
-	ctrlPaginateOID  = "1.2.840.113556.1.4.319"
-	ctrlSortingOID   = "1.2.840.113556.1.4.473"
-	ctrlAssertionOID = "1.3.6.1.1.12"
-	ctrlPreReadOID   = "1.3.6.1.1.13.1"
-	ctrlPostReadOID  = "1.3.6.1.1.13.2"
+	ctrlProxyAuthOID   = "2.16.840.1.113730.3.4.18"
+	ctrlPaginateOID    = "1.2.840.113556.1.4.319"
+	ctrlSortingOID     = "1.2.840.113556.1.4.473"
+	ctrlAssertionOID   = "1.3.6.1.1.12"
+	ctrlPreReadOID     = "1.3.6.1.1.13.1"
+	ctrlPostReadOID    = "1.3.6.1.1.13.2"
+	ctrlTransactionOID = "1.3.6.1.1.21.2"
 )
 
 type Control struct {
@@ -55,6 +56,11 @@ func Sort(keys ...SortKey) Control {
 	var e ber.Encoder
 	e.Encode(keys)
 	return createControl(ctrlSortingOID, e.Bytes(), false)
+}
+
+type paginateValue struct {
+	Size   int
+	Cookie string
 }
 
 func Paginate(size int, cookie []byte) Control {

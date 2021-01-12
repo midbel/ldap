@@ -383,12 +383,14 @@ func runExec(cmd *cli.Command, args []string) error {
 	var (
 		client Client
 		filter Filter
+		tx     bool
 	)
 	cmd.Flag.Var(&filter, "f", "assertion filter")
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
 	cmd.Flag.BoolVar(&client.TLS, "z", false, "start tls")
+	cmd.Flag.BoolVar(&tx, "t", "execute operation(s) in a transaction")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -398,10 +400,23 @@ func runExec(cmd *cli.Command, args []string) error {
 	}
 	defer client.Unbind()
 	var err error
+	if tx {
+		err = client.Begin()
+		if err != nil {
+			return err
+		}
+	}
 	if cmd.Flag.NArg() == 0 {
 		err = client.ExecFromReader(os.Stdin)
 	} else {
 		err = client.ExecFromFile(cmd.Flag.Arg(0))
+	}
+	if tx {
+		if err == nil {
+			err = client.Commit()
+		} else {
+			err = client.Rollback()
+		}
 	}
 	return err
 }

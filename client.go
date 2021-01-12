@@ -14,6 +14,13 @@ const (
 	oidChangePasswd = "1.3.6.1.4.1.4203.1.11.1"
 	oidWhoami       = "1.3.6.1.4.1.4203.1.11.3"
 	oidCancel       = "1.3.6.1.1.8"
+	oidBeginTx      = "1.3.6.1.1.21.1"
+	oidEndTx        = "1.3.6.1.1.21.3"
+)
+
+const (
+	noticeDisconnect = "1.3.6.1.4.1.1466.20036"
+	noticeAbortedTx  = "1.3.6.1.1.21.4"
 )
 
 const (
@@ -45,6 +52,8 @@ type Client struct {
 	mu     sync.Mutex
 	msgid  uint32
 	binded bool
+
+	tx []byte
 }
 
 func Open(addr string) (*Client, error) {
@@ -75,6 +84,70 @@ func Bind(addr, user, passwd string) (*Client, error) {
 		return nil, err
 	}
 	return c, c.Bind(user, passwd)
+}
+
+func (c *Client) Begin() error {
+	if len(c.tx) > 0 {
+		return fmt.Errorf("transaction already running")
+	}
+	req := createExtendedRequest(oidBeginTx, nil)
+	res, err := c.executeExtended(req, nil)
+	if err == nil {
+		c.tx = res.Value
+	}
+	return err
+}
+
+func (c *Client) Commit() error {
+	if len(c.tx) == 0 {
+		return fmt.Errorf("no running transaction")
+	}
+	msg := struct {
+		Commit bool
+		Id     []byte
+	}{
+		Commit: true,
+		Id:     c.tx,
+	}
+	var e ber.Encoder
+	e.Encode(msg)
+	body, err := e.AsSequence()
+	if err != nil {
+		return err
+	}
+
+	req := createExtendedRequest(oidEndTx, body)
+	_, err = c.executeExtended(req, nil)
+	if err == nil {
+		c.tx = c.tx[:0]
+	}
+	return err
+}
+
+func (c *Client) Rollback() error {
+	if len(c.tx) == 0 {
+		return fmt.Errorf("no running transaction")
+	}
+	msg := struct {
+		Commit bool
+		Id     []byte
+	}{
+		Commit: false,
+		Id:     c.tx,
+	}
+	var e ber.Encoder
+	e.Encode(msg)
+	body, err := e.AsSequence()
+	if err != nil {
+		return err
+	}
+
+	req := createExtendedRequest(oidEndTx, body)
+	_, err = c.executeExtended(req, nil)
+	if err == nil {
+		c.tx = c.tx[:0]
+	}
+	return err
 }
 
 func (c *Client) Bind(user, passwd string, controls ...Control) error {
@@ -143,7 +216,7 @@ func (c *Client) Whoami(controls ...Control) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return res.Value, nil
+	return string(res.Value), nil
 }
 
 func (c *Client) Modify(dn string, attrs []PartialAttribute, controls ...Control) error {
@@ -286,6 +359,18 @@ func (c *Client) executeExtended(msg interface{}, controls []Control) (extendedR
 	return c.extendedResult(body)
 }
 
+func (c *Client) withTransaction(app uint64) (Control, bool) {
+	if len(c.tx) == 0 {
+		return Control{}, false
+	}
+	switch app {
+	case ldapAddRequest, ldapModifyRequest, ldapDelRequest, ldapModDNRequest:
+	default:
+		return Control{}, false
+	}
+	return createControl(ctrlTransactionOID, c.tx, true), true
+}
+
 func (c *Client) execute(msg interface{}, app uint64, controls []Control) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -298,6 +383,10 @@ func (c *Client) execute(msg interface{}, app uint64, controls []Control) error 
 		id = ber.NewPrimitive(app)
 	default:
 		id = ber.NewConstructed(app)
+	}
+
+	if ctrl, ok := c.withTransaction(app); ok {
+		controls = append(controls, ctrl)
 	}
 
 	var e ber.Encoder
@@ -456,6 +545,12 @@ func (c *controlResponse) Unmarshal(b []byte) error {
 	switch c.OID {
 	default:
 		return fmt.Errorf("%s: unsupported control response", c.OID)
+	case ctrlPaginateOID:
+		var p paginateValue
+		err = dec.Decode(&p)
+		if err == nil {
+			c.Value = p
+		}
 	case ctrlPreReadOID, ctrlPostReadOID:
 		var e Entry
 		err = dec.Decode(&e)

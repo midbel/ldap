@@ -175,7 +175,7 @@ func (e *extendedRequest) setBody(msg interface{}) {
 type extendedResponse struct {
 	Result
 	Name  string
-	Value string
+	Value []byte
 }
 
 func (e *extendedResponse) Unmarshal(b []byte) error {
@@ -193,7 +193,7 @@ func (e *extendedResponse) Unmarshal(b []byte) error {
 		}
 	}
 	if id, err1 := dec.Peek(); err1 == nil && id.Tag() == 11 {
-		e.Value, err = dec.DecodeString()
+		e.Value, err = dec.DecodeBytes()
 		if err != nil {
 			return err
 		}
