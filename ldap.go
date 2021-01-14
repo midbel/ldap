@@ -24,7 +24,7 @@ const (
 	Referral                  = 10
 	AdminLimitExeeded         = 11
 	UnavailableCriticalExt    = 12
-	ConfidentialtyRequired    = 13
+	ConfidentialityRequired   = 13
 	SaslBindInProgress        = 14
 	NoSuchAttribute           = 16
 	UndefinedAttributeType    = 17

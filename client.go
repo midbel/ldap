@@ -2,6 +2,7 @@ package ldap
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -18,10 +19,21 @@ const (
 	oidEndTx        = "1.3.6.1.1.21.3"
 )
 
+var ExtensionNames = map[string]string{
+	oidStartTLS:     "Start TLS extension",
+	oidChangePasswd: "Modifiy password extension",
+	oidWhoami:       "Who am I extension",
+	oidCancel:       "Cancel extension",
+	oidBeginTx:      "Begin Transaction extension",
+	oidEndTx:        "End Transaction",
+}
+
 const (
 	noticeDisconnect = "1.3.6.1.4.1.1466.20036"
 	noticeAbortedTx  = "1.3.6.1.1.21.4"
 )
+
+var ErrUnsolicited = errors.New("unsolicited notification")
 
 const (
 	ldapBindRequest      uint64 = 0
@@ -207,7 +219,7 @@ func (c *Client) Search(base string, options ...SearchOption) ([]Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	return c.search(body)
+	return c.executeSearch(body)
 }
 
 func (c *Client) Whoami(controls ...Control) (string, error) {
@@ -331,13 +343,13 @@ func (c *Client) Compare(dn string, ava AttributeAssertion, controls ...Control)
 	return res.Code == CompareTrue, err
 }
 
-// func (c *Client) Abandon(msgid int, controls ...Control) error {
-// 	return nil
-// }
-//
-// func (c *Client) Cancel(msgid int, controls ...Control) error {
-// 	return nil
-// }
+func (c *Client) Abandon(msgid int, controls ...Control) error {
+	return nil
+}
+
+func (c *Client) Cancel(msgid int, controls ...Control) error {
+	return nil
+}
 
 func (c *Client) executeExtended(msg interface{}, controls []Control) (extendedResponse, error) {
 	c.mu.Lock()
@@ -368,7 +380,7 @@ func (c *Client) withTransaction(app uint64) (Control, bool) {
 	default:
 		return Control{}, false
 	}
-	return createControl(ctrlTransactionOID, c.tx, true), true
+	return createControl(CtrlTransactionOID, c.tx, true), true
 }
 
 func (c *Client) execute(msg interface{}, app uint64, controls []Control) error {
@@ -475,7 +487,7 @@ func (c *Client) result(body []byte, app uint64) (Result, error) {
 	return res, res
 }
 
-func (c *Client) search(body []byte) ([]Entry, error) {
+func (c *Client) executeSearch(body []byte) ([]Entry, error) {
 	if _, err := c.conn.Write(body); err != nil {
 		return nil, err
 	}
@@ -522,49 +534,10 @@ func (c *Client) search(body []byte) ([]Entry, error) {
 	return es, nil
 }
 
-type controlResponse struct {
-	OID   string
-	Value interface{}
-}
-
-func (c *controlResponse) Unmarshal(b []byte) error {
-	var (
-		dec = ber.NewDecoder(b)
-		raw []byte
-		err error
-	)
-	c.OID, err = dec.DecodeString()
-	if err != nil {
-		return err
-	}
-	raw, err = dec.DecodeBytes()
-	if err != nil {
-		return err
-	}
-	dec.Reset(raw)
-	switch c.OID {
-	default:
-		return fmt.Errorf("%s: unsupported control response", c.OID)
-	case ctrlPaginateOID:
-		var p paginateValue
-		err = dec.Decode(&p)
-		if err == nil {
-			c.Value = p
-		}
-	case ctrlPreReadOID, ctrlPostReadOID:
-		var e Entry
-		err = dec.Decode(&e)
-		if err == nil {
-			c.Value = e
-		}
-	}
-	return err
-}
-
 type rawMessage struct {
 	Id       int
 	Body     ber.Raw
-	Controls []controlResponse
+	Controls []ControlValue
 }
 
 func (r rawMessage) Empty() bool {
@@ -578,7 +551,14 @@ func (r rawMessage) Decode(val interface{}) error {
 		if err := d.Decode(&e); err != nil {
 			return err
 		}
-		return e.Result
+		switch e.Name {
+		case noticeDisconnect:
+			return fmt.Errorf("%w: disconnection", ErrUnsolicited)
+		case noticeAbortedTx:
+			return fmt.Errorf("%w: transaction aborted", ErrUnsolicited)
+		default:
+			return e.Result
+		}
 	}
 	return d.Decode(val)
 }

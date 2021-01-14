@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/midbel/cli"
@@ -22,6 +23,12 @@ const (
 	scopeOne    = "one"
 	scopeWhole  = "whole"
 	scopeTree   = "subtree"
+)
+
+const (
+	supportedFeatures   = "supportedFeatures"
+	supportedControls   = "supportedControl"
+	supportedExtensions = "supportedExtension"
 )
 
 type Filter struct {
@@ -126,6 +133,7 @@ type Client struct {
 }
 
 func (c *Client) Search(base string, options []ldap.SearchOption) error {
+	options = append(options, ldap.WithControl(ldap.Paginate(5, nil)))
 	es, err := c.Client.Search(base, options...)
 	if err != nil {
 		return err
@@ -138,6 +146,57 @@ func (c *Client) Search(base string, options []ldap.SearchOption) error {
 			fmt.Fprintln(os.Stdout)
 		}
 		PrintEntry(e)
+	}
+	return nil
+}
+
+func (c *Client) SupportedControls() error {
+	return c.searchRootDSE(supportedControls, ldap.ControlNames)
+}
+
+func (c *Client) SupportedExtensions() error {
+	return c.searchRootDSE(supportedExtensions, ldap.ExtensionNames)
+}
+
+func (c *Client) SupportedFeatures() error {
+	return c.searchRootDSE(supportedFeatures, nil)
+}
+
+func (c *Client) searchRootDSE(attr string, names map[string]string) error {
+	var (
+		list  = ldap.WithAttributes([]string{attr})
+		lim   = ldap.WithLimit(1)
+		scope = ldap.WithScope(ldap.ScopeBase)
+	)
+	es, err := c.Client.Search("", list, lim, scope)
+	if err != nil {
+		return err
+	}
+	if len(es) == 0 {
+		return nil
+	}
+	e := es[0]
+	sort.Slice(e.Attrs, func(i, j int) bool {
+		return e.Attrs[i].Name < e.Attrs[j].Name
+	})
+	x := sort.Search(len(e.Attrs), func(i int) bool {
+		return e.Attrs[i].Name >= attr
+	})
+	if x >= len(e.Attrs) || e.Attrs[x].Name != attr {
+		return fmt.Errorf("%s: attribute not found", attr)
+	}
+	for _, v := range e.Attrs[x].Values {
+		if len(names) == 0 {
+			fmt.Println(v)
+			continue
+		}
+		str := names[v]
+		if str != "" {
+			fmt.Printf("- %s (%s)", str, v)
+		} else {
+			fmt.Printf("- %s", v)
+		}
+		fmt.Println()
 	}
 	return nil
 }
@@ -191,10 +250,15 @@ var commands = []*cli.Command{
 		Run:   runBind,
 	},
 	{
-		Usage: "search [-u] [-p] [-r] [-t] [-a] <base> <filter>",
+		Usage: "search [-u] [-p] [-r] [-t] [-a] [-s] <base> <filter>",
 		Alias: []string{"filter", "find"},
 		Short: "search ldap",
 		Run:   runSearch,
+	},
+	{
+		Usage: "support [-u] [-p] [-r] [-e] [-f] [-c] [-a]",
+		Short: "get list of supported features",
+		Run:   runSupported,
 	},
 	{
 		Usage: "compare [-u] [-p] [-r] <base> <assertion...>",
@@ -390,7 +454,7 @@ func runExec(cmd *cli.Command, args []string) error {
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
 	cmd.Flag.BoolVar(&client.TLS, "z", false, "start tls")
-	cmd.Flag.BoolVar(&tx, "t", "execute operation(s) in a transaction")
+	cmd.Flag.BoolVar(&tx, "t", tx, "execute operation(s) in a transaction")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -531,6 +595,53 @@ func runCompare(cmd *cli.Command, args []string) error {
 		fmt.Fprintln(os.Stdout)
 	}
 	return nil
+}
+
+func runSupported(cmd *cli.Command, args []string) error {
+	var (
+		client    Client
+		extension bool
+		feature   bool
+		control   bool
+		all       bool
+	)
+	cmd.Flag.BoolVar(&all, "a", all, "show complete list")
+	cmd.Flag.BoolVar(&extension, "e", extension, "show list of supported extension")
+	cmd.Flag.BoolVar(&control, "c", control, "show list of supported controls")
+	cmd.Flag.BoolVar(&feature, "f", feature, "show list of supported features")
+	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
+	cmd.Flag.StringVar(&client.User, "u", "", "user")
+	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
+	cmd.Flag.BoolVar(&client.TLS, "z", false, "start tls")
+	if err := cmd.Flag.Parse(args); err != nil {
+		return err
+	}
+
+	if err := client.Bind(); err != nil {
+		return err
+	}
+	defer client.Unbind()
+
+	var err error
+	if extension || all {
+		err = client.SupportedExtensions()
+		if err != nil {
+			return err
+		}
+	}
+	if feature || all {
+		err = client.SupportedFeatures()
+		if err != nil {
+			return err
+		}
+	}
+	if control || all {
+		err = client.SupportedControls()
+		if err != nil {
+			return err
+		}
+	}
+	return err
 }
 
 func runSearch(cmd *cli.Command, args []string) error {
