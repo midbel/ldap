@@ -12,6 +12,24 @@ import (
 const RFC4511 = 3
 
 const (
+	operationalAttrOID = "1.3.6.1.4.1.4203.1.5.1"
+	objectClassAttrOID = "1.3.6.1.4.1.4203.1.5.2"
+	absoluteBoolOID    = "1.3.6.1.4.1.4203.1.5.3"
+	languageTagOID     = "1.3.6.1.4.1.4203.1.5.4"
+	languageRangeOID   = "1.3.6.1.4.1.4203.1.5.5"
+	modifyIncrOID      = "1.3.6.1.1.14"
+)
+
+var FeatureNames = map[string]string{
+	operationalAttrOID: "all operational attributes",
+	objectClassAttrOID: "request attributes by objectClass",
+	absoluteBoolOID:    "absolute true/false filters",
+	languageTagOID:     "language tag options",
+	languageRangeOID:   "language range options",
+	modifyIncrOID:      "modify increment",
+}
+
+const (
 	Success                   = 0
 	OperationError            = 1
 	ProtocolError             = 2

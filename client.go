@@ -87,7 +87,10 @@ func BindTLS(addr, user, passwd string, cfg *tls.Config) (*Client, error) {
 	if err := c.StartTLS(cfg); err != nil {
 		return nil, err
 	}
-	return c, c.Bind(user, passwd)
+	if _, err := c.Bind(user, passwd); err != nil {
+		return nil, err
+	}
+	return c, err
 }
 
 func Bind(addr, user, passwd string) (*Client, error) {
@@ -95,7 +98,10 @@ func Bind(addr, user, passwd string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return c, c.Bind(user, passwd)
+	if _, err := c.Bind(user, passwd); err != nil {
+		return nil, err
+	}
+	return c, err
 }
 
 func (c *Client) Begin() error {
@@ -103,7 +109,7 @@ func (c *Client) Begin() error {
 		return fmt.Errorf("transaction already running")
 	}
 	req := createExtendedRequest(oidBeginTx, nil)
-	res, err := c.executeExtended(req, nil)
+	res, _, err := c.executeExtended(req, nil)
 	if err == nil {
 		c.tx = res.Value
 	}
@@ -129,7 +135,7 @@ func (c *Client) Commit() error {
 	}
 
 	req := createExtendedRequest(oidEndTx, body)
-	_, err = c.executeExtended(req, nil)
+	_, _, err = c.executeExtended(req, nil)
 	if err == nil {
 		c.tx = c.tx[:0]
 	}
@@ -155,16 +161,16 @@ func (c *Client) Rollback() error {
 	}
 
 	req := createExtendedRequest(oidEndTx, body)
-	_, err = c.executeExtended(req, nil)
+	_, _, err = c.executeExtended(req, nil)
 	if err == nil {
 		c.tx = c.tx[:0]
 	}
 	return err
 }
 
-func (c *Client) Bind(user, passwd string, controls ...Control) error {
+func (c *Client) Bind(user, passwd string, controls ...Control) ([]ControlValue, error) {
 	if c.binded {
-		return nil
+		return nil, nil
 	}
 	msg := struct {
 		Version int
@@ -175,23 +181,23 @@ func (c *Client) Bind(user, passwd string, controls ...Control) error {
 		Name:    user,
 		Pass:    passwd,
 	}
-	err := c.execute(msg, ldapBindRequest, controls)
+	values, err := c.execute(msg, ldapBindRequest, controls)
 	if err == nil {
 		c.binded = true
 	}
-	return err
+	return values, err
 }
 
-func (c *Client) Unbind(controls ...Control) error {
+func (c *Client) Unbind() error {
 	defer c.conn.Close()
 	if !c.binded {
 		return nil
 	}
-	msg := struct{}{}
-	return c.execute(msg, ldapUnbindRequest, controls)
+	_, err := c.execute(struct{}{}, ldapUnbindRequest, nil)
+	return err
 }
 
-func (c *Client) Search(base string, options ...SearchOption) ([]Entry, error) {
+func (c *Client) Search(base string, options ...SearchOption) ([]Entry, []ControlValue, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -205,7 +211,7 @@ func (c *Client) Search(base string, options ...SearchOption) ([]Entry, error) {
 	}
 	for _, opt := range options {
 		if err := opt(&search); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -217,21 +223,21 @@ func (c *Client) Search(base string, options ...SearchOption) ([]Entry, error) {
 	}
 	body, err := e.AsSequence()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	return c.executeSearch(body)
 }
 
-func (c *Client) Whoami(controls ...Control) (string, error) {
+func (c *Client) Whoami(controls ...Control) (string, []ControlValue, error) {
 	req := createExtendedRequest(oidWhoami, nil)
-	res, err := c.executeExtended(req, controls)
+	res, values, err := c.executeExtended(req, controls)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return string(res.Value), nil
+	return string(res.Value), values, nil
 }
 
-func (c *Client) Modify(dn string, attrs []PartialAttribute, controls ...Control) error {
+func (c *Client) Modify(dn string, attrs []PartialAttribute, controls ...Control) ([]ControlValue, error) {
 	msg := struct {
 		Name  string `ber:"octetstr"`
 		Attrs []PartialAttribute
@@ -242,7 +248,7 @@ func (c *Client) Modify(dn string, attrs []PartialAttribute, controls ...Control
 	return c.execute(msg, ldapModifyRequest, controls)
 }
 
-func (c *Client) Add(dn string, attrs []Attribute, controls ...Control) error {
+func (c *Client) Add(dn string, attrs []Attribute, controls ...Control) ([]ControlValue, error) {
 	msg := struct {
 		Name  string `ber:"octetstr"`
 		Attrs []Attribute
@@ -253,11 +259,11 @@ func (c *Client) Add(dn string, attrs []Attribute, controls ...Control) error {
 	return c.execute(msg, ldapAddRequest, controls)
 }
 
-func (c *Client) Delete(dn string, controls ...Control) error {
+func (c *Client) Delete(dn string, controls ...Control) ([]ControlValue, error) {
 	return c.execute([]byte(dn), ldapDelRequest, controls)
 }
 
-func (c *Client) ModifyPassword(dn, curr, next string, controls ...Control) error {
+func (c *Client) ModifyPassword(dn, curr, next string, controls ...Control) ([]ControlValue, error) {
 	msg := struct {
 		Name string `ber:"class:0x2,tag:0x0,omitempty"`
 		Old  string `ber:"class:0x2,tag:0x1,omitempty"`
@@ -271,19 +277,19 @@ func (c *Client) ModifyPassword(dn, curr, next string, controls ...Control) erro
 	return c.execute(req, ldapExtendedRequest, controls)
 }
 
-func (c *Client) StartTLS(cfg *tls.Config, controls ...Control) error {
+func (c *Client) StartTLS(cfg *tls.Config) error {
 	if _, ok := c.conn.(*tls.Conn); ok {
 		return nil
 	}
 	req := createExtendedRequest(oidStartTLS, nil)
-	_, err := c.executeExtended(req, controls)
+	_, _, err := c.executeExtended(req, nil)
 	if err == nil {
 		c.conn = tls.Client(c.conn, cfg)
 	}
 	return err
 }
 
-func (c *Client) Rename(dn, rdn string, keep bool, controls ...Control) error {
+func (c *Client) Rename(dn, rdn string, keep bool, controls ...Control) ([]ControlValue, error) {
 	msg := struct {
 		Name  string `ber:"octetstr"`
 		Value string `ber:"octetstr"`
@@ -296,10 +302,10 @@ func (c *Client) Rename(dn, rdn string, keep bool, controls ...Control) error {
 	return c.execute(msg, ldapModDNRequest, controls)
 }
 
-func (c *Client) Move(dn, parent string, controls ...Control) error {
+func (c *Client) Move(dn, parent string, controls ...Control) ([]ControlValue, error) {
 	name, err := Explode(dn)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	msg := struct {
 		Name   string `ber:"octetstr"`
@@ -315,7 +321,7 @@ func (c *Client) Move(dn, parent string, controls ...Control) error {
 	return c.execute(msg, ldapModDNRequest, controls)
 }
 
-func (c *Client) Compare(dn string, ava AttributeAssertion, controls ...Control) (bool, error) {
+func (c *Client) Compare(dn string, ava AttributeAssertion, controls ...Control) (bool, []ControlValue, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -337,10 +343,10 @@ func (c *Client) Compare(dn string, ava AttributeAssertion, controls ...Control)
 	}
 	body, err := e.AsSequence()
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
-	res, err := c.result(body, ldapCmpResponse)
-	return res.Code == CompareTrue, err
+	res, values, err := c.result(body, ldapCmpResponse)
+	return res.Code == CompareTrue, values, err
 }
 
 func (c *Client) Abandon(msgid int, controls ...Control) error {
@@ -351,7 +357,7 @@ func (c *Client) Cancel(msgid int, controls ...Control) error {
 	return nil
 }
 
-func (c *Client) executeExtended(msg interface{}, controls []Control) (extendedResponse, error) {
+func (c *Client) executeExtended(msg interface{}, controls []Control) (extendedResponse, []ControlValue, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -365,7 +371,7 @@ func (c *Client) executeExtended(msg interface{}, controls []Control) (extendedR
 	}
 	body, err := e.AsSequence()
 	if err != nil {
-		return extendedResponse{}, err
+		return extendedResponse{}, nil, err
 	}
 
 	return c.extendedResult(body)
@@ -383,7 +389,7 @@ func (c *Client) withTransaction(app uint64) (Control, bool) {
 	return createControl(CtrlTransactionOID, c.tx, true), true
 }
 
-func (c *Client) execute(msg interface{}, app uint64, controls []Control) error {
+func (c *Client) execute(msg interface{}, app uint64, controls []Control) ([]ControlValue, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -409,7 +415,7 @@ func (c *Client) execute(msg interface{}, app uint64, controls []Control) error 
 	}
 	body, err := e.AsSequence()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	switch app {
@@ -426,20 +432,20 @@ func (c *Client) execute(msg interface{}, app uint64, controls []Control) error 
 	case ldapModDNRequest:
 		app = ldapModDNResponse
 	}
-	_, err = c.result(body, app)
-	return err
+	_, values, err := c.result(body, app)
+	return values, err
 }
 
-func (c *Client) extendedResult(body []byte) (extendedResponse, error) {
+func (c *Client) extendedResult(body []byte) (extendedResponse, []ControlValue, error) {
 	var res extendedResponse
 	if _, err := c.conn.Write(body); err != nil {
-		return res, err
+		return res, nil, err
 	}
 
 	body = make([]byte, 1<<15)
 	n, err := c.conn.Read(body)
 	if err != nil {
-		return res, err
+		return res, nil, err
 	}
 
 	var (
@@ -447,28 +453,28 @@ func (c *Client) extendedResult(body []byte) (extendedResponse, error) {
 		dec = ber.NewDecoder(body[:n])
 	)
 	if err := dec.Decode(&msg); err != nil {
-		return res, err
+		return res, nil, err
 	}
 	if err := msg.Decode(&res); err != nil {
-		return res, err
+		return res, nil, err
 	}
 	if res.succeed() {
-		return res, nil
+		return res, msg.Controls, nil
 	}
-	return res, res.Result
+	return res, nil, res.Result
 }
 
-func (c *Client) result(body []byte, app uint64) (Result, error) {
+func (c *Client) result(body []byte, app uint64) (Result, []ControlValue, error) {
 	if _, err := c.conn.Write(body); err != nil {
-		return Result{}, err
+		return Result{}, nil, err
 	}
 	if app == 0 {
-		return Result{}, nil
+		return Result{}, nil, nil
 	}
 	body = make([]byte, 1<<15)
 	n, err := c.conn.Read(body)
 	if err != nil {
-		return Result{}, err
+		return Result{}, nil, err
 	}
 	var (
 		res Result
@@ -476,24 +482,25 @@ func (c *Client) result(body []byte, app uint64) (Result, error) {
 		dec = ber.NewDecoder(body[:n])
 	)
 	if err := dec.Decode(&msg); err != nil {
-		return res, err
+		return res, nil, err
 	}
 	if err := msg.Decode(&res); err != nil {
-		return res, err
+		return res, nil, err
 	}
 	if res.succeed() {
-		return res, nil
+		return res, msg.Controls, nil
 	}
-	return res, res
+	return res, nil, res
 }
 
-func (c *Client) executeSearch(body []byte) ([]Entry, error) {
+func (c *Client) executeSearch(body []byte) ([]Entry, []ControlValue, error) {
 	if _, err := c.conn.Write(body); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	body = make([]byte, 1<<15)
 	var (
 		es   []Entry
+		vs   []ControlValue
 		res  Result
 		done bool
 		dec  = ber.NewDecoder(nil)
@@ -501,37 +508,38 @@ func (c *Client) executeSearch(body []byte) ([]Entry, error) {
 	for !done {
 		n, err := c.conn.Read(body)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		dec.Append(body[:n])
 		for dec.Can() && !done {
 			var msg rawMessage
 			if err := dec.Decode(&msg); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			id, _ := msg.Body.Peek()
 			switch tag := id.Tag(); uint64(tag) {
 			case ldapSearchResDone:
 				if err := msg.Decode(&res); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
+				vs = msg.Controls
 				done = true
 			case ldapSearchResEntry:
 				var e Entry
 				if err := msg.Decode(&e); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				es = append(es, e)
 			case ldapSearchResRef:
 			default:
-				return nil, fmt.Errorf("unexpected response code (%02x)!", tag)
+				return nil, nil, fmt.Errorf("unexpected response code (%02x)!", tag)
 			}
 		}
 	}
 	if !res.succeed() {
-		return nil, res
+		return nil, nil, res
 	}
-	return es, nil
+	return es, vs, nil
 }
 
 type rawMessage struct {

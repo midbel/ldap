@@ -55,6 +55,9 @@ func (f *Filter) Control() ldap.Control {
 }
 
 func (f *Filter) Option() ldap.SearchOption {
+	if f.Filter == nil {
+		return nil
+	}
 	return ldap.WithControl(f.Control())
 }
 
@@ -74,6 +77,9 @@ func (o *OrderBy) String() string {
 }
 
 func (o *OrderBy) Option() ldap.SearchOption {
+	if len(o.Keys) == 0 {
+		return nil
+	}
 	return ldap.WithControl(ldap.Sort(o.Keys...))
 }
 
@@ -104,12 +110,24 @@ func (s *Scope) Option() ldap.SearchOption {
 }
 
 type Attributes struct {
-	Attrs []string
+	Attrs   []string
+	Filters []ldap.Filter
 }
 
 func (a *Attributes) Set(str string) error {
 	for _, attr := range strings.Split(str, ",") {
+		var filter ldap.Filter
+		if x := strings.Index(attr, "("); x >= 0 {
+			f, err := ldap.ParseFilter(attr[x:])
+			if err != nil {
+				return err
+			}
+			attr, filter = attr[:x], f
+		}
 		a.Attrs = append(a.Attrs, strings.TrimSpace(attr))
+		if filter != nil {
+			a.Filters = append(a.Filters, filter)
+		}
 	}
 	return nil
 }
@@ -118,8 +136,14 @@ func (a *Attributes) String() string {
 	return strings.Join(a.Attrs, ", ")
 }
 
-func (a *Attributes) Option() ldap.SearchOption {
-	return ldap.WithAttributes(a.Attrs)
+func (a *Attributes) Option() []ldap.SearchOption {
+	options := []ldap.SearchOption{
+		ldap.WithAttributes(a.Attrs),
+	}
+	if len(a.Filters) > 0 {
+		options = append(options, ldap.WithControl(ldap.FilterValues(a.Filters)))
+	}
+	return options
 }
 
 type Client struct {
@@ -133,8 +157,7 @@ type Client struct {
 }
 
 func (c *Client) Search(base string, options []ldap.SearchOption) error {
-	options = append(options, ldap.WithControl(ldap.Paginate(5, nil)))
-	es, err := c.Client.Search(base, options...)
+	es, _, err := c.Client.Search(base, options...)
 	if err != nil {
 		return err
 	}
@@ -151,54 +174,15 @@ func (c *Client) Search(base string, options []ldap.SearchOption) error {
 }
 
 func (c *Client) SupportedControls() error {
-	return c.searchRootDSE(supportedControls, ldap.ControlNames)
+	return c.searchFeatures(supportedControls, "C", ldap.ControlNames)
 }
 
 func (c *Client) SupportedExtensions() error {
-	return c.searchRootDSE(supportedExtensions, ldap.ExtensionNames)
+	return c.searchFeatures(supportedExtensions, "E", ldap.ExtensionNames)
 }
 
 func (c *Client) SupportedFeatures() error {
-	return c.searchRootDSE(supportedFeatures, nil)
-}
-
-func (c *Client) searchRootDSE(attr string, names map[string]string) error {
-	var (
-		list  = ldap.WithAttributes([]string{attr})
-		lim   = ldap.WithLimit(1)
-		scope = ldap.WithScope(ldap.ScopeBase)
-	)
-	es, err := c.Client.Search("", list, lim, scope)
-	if err != nil {
-		return err
-	}
-	if len(es) == 0 {
-		return nil
-	}
-	e := es[0]
-	sort.Slice(e.Attrs, func(i, j int) bool {
-		return e.Attrs[i].Name < e.Attrs[j].Name
-	})
-	x := sort.Search(len(e.Attrs), func(i int) bool {
-		return e.Attrs[i].Name >= attr
-	})
-	if x >= len(e.Attrs) || e.Attrs[x].Name != attr {
-		return fmt.Errorf("%s: attribute not found", attr)
-	}
-	for _, v := range e.Attrs[x].Values {
-		if len(names) == 0 {
-			fmt.Println(v)
-			continue
-		}
-		str := names[v]
-		if str != "" {
-			fmt.Printf("- %s (%s)", str, v)
-		} else {
-			fmt.Printf("- %s", v)
-		}
-		fmt.Println()
-	}
-	return nil
+	return c.searchFeatures(supportedFeatures, "F", ldap.FeatureNames)
 }
 
 func (c *Client) Bind() error {
@@ -216,20 +200,22 @@ func (c *Client) Bind() error {
 
 func (c *Client) ExecFromReader(r io.Reader) error {
 	return ldap.ReadLDIF(r, func(ct ldap.ChangeType, cg ldap.Change) error {
+		var err error
 		switch ct {
 		case ldap.ModAdd:
 			attrs := make([]ldap.Attribute, len(cg.Attrs))
 			for i := range cg.Attrs {
 				attrs[i] = cg.Attrs[i].Attribute
 			}
-			return c.Client.Add(cg.Name, attrs)
+			_, err = c.Client.Add(cg.Name, attrs)
 		case ldap.ModDelete:
-			return c.Client.Delete(cg.Name)
+			_, err = c.Client.Delete(cg.Name)
 		case ldap.ModReplace:
-			return c.Client.Modify(cg.Name, cg.Attrs)
+			_, err = c.Client.Modify(cg.Name, cg.Attrs)
 		default:
-			return fmt.Errorf("unsupported/unknown action")
+			err = fmt.Errorf("unsupported/unknown action")
 		}
+		return err
 	})
 }
 
@@ -242,6 +228,22 @@ func (c *Client) ExecFromFile(file string) error {
 	return c.ExecFromReader(r)
 }
 
+func (c *Client) searchFeatures(attr, prefix string, names map[string]string) error {
+	var (
+		list  = ldap.WithAttributes([]string{attr})
+		lim   = ldap.WithLimit(1)
+		scope = ldap.WithScope(ldap.ScopeBase)
+	)
+	es, _, err := c.Client.Search("", list, lim, scope)
+	if err != nil {
+		return err
+	}
+	if len(es) == 0 {
+		return nil
+	}
+	return PrintFeatures(es[0], attr, prefix, names)
+}
+
 var commands = []*cli.Command{
 	{
 		Usage: "bind [-u] [-p] [-r]",
@@ -252,7 +254,7 @@ var commands = []*cli.Command{
 	{
 		Usage: "search [-u] [-p] [-r] [-t] [-a] [-s] <base> <filter>",
 		Alias: []string{"filter", "find"},
-		Short: "search ldap",
+		Short: "search for entries in directory",
 		Run:   runSearch,
 	},
 	{
@@ -263,13 +265,13 @@ var commands = []*cli.Command{
 	{
 		Usage: "compare [-u] [-p] [-r] <base> <assertion...>",
 		Alias: []string{"cmp"},
-		Short: "compare ldap",
+		Short: "compare entry's attributes with assertion",
 		Run:   runCompare,
 	},
 	{
 		Usage: "delete [-u] [-p] [-r] <dn...>",
 		Alias: []string{"rm", "del", "remove"},
-		Short: "remove entries from ldap",
+		Short: "remove entries from directory",
 		Run:   runDelete,
 	},
 	{
@@ -286,7 +288,7 @@ var commands = []*cli.Command{
 	{
 		Usage: "execute [-u] [-p] [-r] <file|->",
 		Alias: []string{"exec"},
-		Short: "execute ldap operations found in the given file",
+		Short: "execute given operations to directory",
 		Run:   runExec,
 	},
 	{
@@ -395,7 +397,8 @@ func runModifyPasswd(cmd *cli.Command, args []string) error {
 		old = ""
 		user = cmd.Flag.Arg(0)
 	}
-	return client.ModifyPassword(user, old, pass, filter.Control())
+	_, err := client.ModifyPassword(user, old, pass, filter.Control())
+	return err
 }
 
 func runBind(cmd *cli.Command, args []string) error {
@@ -436,7 +439,7 @@ func runWhoami(cmd *cli.Command, args []string) error {
 		return err
 	}
 	defer client.Unbind()
-	who, err := client.Whoami(filter.Control())
+	who, _, err := client.Whoami(filter.Control())
 	if err == nil {
 		fmt.Fprintln(os.Stdout, strings.TrimPrefix(who, "dn:"))
 	}
@@ -504,7 +507,8 @@ func runMove(cmd *cli.Command, args []string) error {
 	}
 	defer client.Unbind()
 
-	return client.Move(cmd.Flag.Arg(0), cmd.Flag.Arg(1), filter.Control())
+	_, err := client.Move(cmd.Flag.Arg(0), cmd.Flag.Arg(1), filter.Control())
+	return err
 }
 
 func runRename(cmd *cli.Command, args []string) error {
@@ -528,7 +532,8 @@ func runRename(cmd *cli.Command, args []string) error {
 	}
 	defer client.Unbind()
 
-	return client.Rename(cmd.Flag.Arg(0), cmd.Flag.Arg(1), keep, filter.Control())
+	_, err := client.Rename(cmd.Flag.Arg(0), cmd.Flag.Arg(1), keep, filter.Control())
+	return err
 }
 
 func runDelete(cmd *cli.Command, args []string) error {
@@ -551,7 +556,7 @@ func runDelete(cmd *cli.Command, args []string) error {
 	defer client.Unbind()
 
 	for _, a := range cmd.Flag.Args() {
-		if err := client.Delete(a, filter.Control()); err != nil {
+		if _, err := client.Delete(a, filter.Control()); err != nil {
 			fmt.Fprintf(os.Stderr, "fail to delete %s: %s", a, err)
 			fmt.Fprintln(os.Stderr)
 		}
@@ -583,7 +588,7 @@ func runCompare(cmd *cli.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		ok, err := client.Compare(cmd.Flag.Arg(0), ava, filter.Control())
+		ok, _, err := client.Compare(cmd.Flag.Arg(0), ava, filter.Control())
 		if err != nil {
 			return err
 		}
@@ -599,16 +604,14 @@ func runCompare(cmd *cli.Command, args []string) error {
 
 func runSupported(cmd *cli.Command, args []string) error {
 	var (
-		client    Client
-		extension bool
-		feature   bool
-		control   bool
-		all       bool
+		client        Client
+		onlyExtension bool
+		onlyFeature   bool
+		onlyControl   bool
 	)
-	cmd.Flag.BoolVar(&all, "a", all, "show complete list")
-	cmd.Flag.BoolVar(&extension, "e", extension, "show list of supported extension")
-	cmd.Flag.BoolVar(&control, "c", control, "show list of supported controls")
-	cmd.Flag.BoolVar(&feature, "f", feature, "show list of supported features")
+	cmd.Flag.BoolVar(&onlyExtension, "e", onlyExtension, "show list of supported extension")
+	cmd.Flag.BoolVar(&onlyControl, "c", onlyControl, "show list of supported controls")
+	cmd.Flag.BoolVar(&onlyFeature, "f", onlyFeature, "show list of supported features")
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
 	cmd.Flag.StringVar(&client.User, "u", "", "user")
 	cmd.Flag.StringVar(&client.Pass, "p", "", "password")
@@ -617,31 +620,33 @@ func runSupported(cmd *cli.Command, args []string) error {
 		return err
 	}
 
+	all := !onlyFeature && !onlyExtension && !onlyControl
+
 	if err := client.Bind(); err != nil {
 		return err
 	}
 	defer client.Unbind()
 
 	var err error
-	if extension || all {
+	if onlyExtension || all {
 		err = client.SupportedExtensions()
 		if err != nil {
 			return err
 		}
 	}
-	if feature || all {
+	if onlyFeature || all {
 		err = client.SupportedFeatures()
 		if err != nil {
 			return err
 		}
 	}
-	if control || all {
+	if onlyControl || all {
 		err = client.SupportedControls()
 		if err != nil {
 			return err
 		}
 	}
-	return err
+	return nil
 }
 
 func runSearch(cmd *cli.Command, args []string) error {
@@ -655,9 +660,9 @@ func runSearch(cmd *cli.Command, args []string) error {
 		client Client
 	)
 	cmd.Flag.Var(&filter, "f", "assertion filter")
-	cmd.Flag.Var(&attr, "a", "")
-	cmd.Flag.Var(&scope, "s", "")
-	cmd.Flag.Var(&order, "o", "")
+	cmd.Flag.Var(&attr, "a", "attributes")
+	cmd.Flag.Var(&scope, "s", "scope")
+	cmd.Flag.Var(&order, "o", "sort")
 	cmd.Flag.BoolVar(&types, "t", false, "types only")
 	cmd.Flag.IntVar(&limit, "n", 0, "limit number of entries returned")
 	cmd.Flag.StringVar(&client.Addr, "r", "localhost:389", "remote host")
@@ -676,11 +681,15 @@ func runSearch(cmd *cli.Command, args []string) error {
 	options := []ldap.SearchOption{
 		ldap.WithTypes(types),
 		ldap.WithLimit(limit),
-		attr.Option(),
 		scope.Option(),
-		order.Option(),
-		filter.Option(),
 	}
+	if opt := order.Option(); opt != nil {
+		options = append(options, opt)
+	}
+	if opt := filter.Option(); opt != nil {
+		options = append(options, opt)
+	}
+	options = append(options, attr.Option()...)
 	if cmd.Flag.NArg() > 1 {
 		filter, err := ldap.ParseFilter(cmd.Flag.Arg(1))
 		if err != nil {
@@ -689,6 +698,30 @@ func runSearch(cmd *cli.Command, args []string) error {
 		options = append(options, ldap.WithFilter(filter))
 	}
 	return client.Search(cmd.Flag.Arg(0), options)
+}
+
+func PrintFeatures(e ldap.Entry, attr, prefix string, names map[string]string) error {
+	sort.Slice(e.Attrs, func(i, j int) bool {
+		return e.Attrs[i].Name < e.Attrs[j].Name
+	})
+	x := sort.Search(len(e.Attrs), func(i int) bool {
+		return e.Attrs[i].Name >= attr
+	})
+	if x >= len(e.Attrs) || e.Attrs[x].Name != attr {
+		return fmt.Errorf("%s: attribute not found", attr)
+	}
+	if names == nil {
+		names = make(map[string]string)
+	}
+	for _, v := range e.Attrs[x].Values {
+		if str := names[v]; str != "" {
+			fmt.Printf("- %s: %s (%s)", prefix, str, v)
+		} else {
+			fmt.Printf("- %s: %s", prefix, v)
+		}
+		fmt.Println()
+	}
+	return nil
 }
 
 func PrintEntry(e ldap.Entry) {
