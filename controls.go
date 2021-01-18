@@ -1,6 +1,7 @@
 package ldap
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/midbel/ber"
@@ -47,20 +48,61 @@ type ControlValue struct {
 	Value []byte
 }
 
+func (cv ControlValue) DecodeValue() (interface{}, error) {
+	switch cv.OID {
+	default:
+		return cv.Value, nil
+	case CtrlPaginateOID:
+		var (
+			p PaginateValue
+			d  = ber.NewDecoder(cv.Value)
+		)
+		return p, d.Decode(&p)
+	case CtrlPostReadOID, CtrlPreReadOID:
+		var (
+			e Entry
+			d  = ber.NewDecoder(cv.Value)
+		)
+		return e, d.Decode(&e)
+	}
+}
+
+func (cv ControlValue) AsEntry() (Entry, error) {
+	v, err := cv.DecodeValue()
+	if err != nil {
+		return Entry{}, err
+	}
+	if e, ok := v.(Entry); ok {
+		return e, nil
+	}
+	return Entry{}, fmt.Errorf("")
+}
+
+func (cv ControlValue) AsPaginate() (PaginateValue, error) {
+	v, err := cv.DecodeValue()
+	if err != nil {
+		return PaginateValue{}, err
+	}
+	if p, ok := v.(PaginateValue); ok {
+		return p, nil
+	}
+	return PaginateValue{}, fmt.Errorf("")
+}
+
 func ProxyAuthorization(authid string) Control {
-	return createControl(CtrlProxyAuthOID, []byte(authid), true)
+	return CreateControl(CtrlProxyAuthOID, []byte(authid), true)
 }
 
 func FilterValues(filters []Filter) Control {
 	var e ber.Encoder
 	e.Encode(filters)
-	return createControl(CtrlMatchedValuesOID, e.Bytes(), false)
+	return CreateControl(CtrlMatchedValuesOID, e.Bytes(), false)
 }
 
 type SortKey struct {
 	Name    string `ber:"tag:0x4"`
 	Rule    string `ber:"class:0x2,tag:0x0,omitempty"`
-	Reverse bool   `ber:"class:0x2,tag:0x1"`
+	Reverse bool   `ber:"class:0x2,tag:0x1,omitempty"`
 }
 
 func ParseSortKey(str string) SortKey {
@@ -86,7 +128,7 @@ func ParseSortKey(str string) SortKey {
 func Sort(keys ...SortKey) Control {
 	var e ber.Encoder
 	e.Encode(keys)
-	return createControl(CtrlSortReqOID, e.Bytes(), false)
+	return CreateControl(CtrlSortReqOID, e.Bytes(), false)
 }
 
 type PaginateValue struct {
@@ -105,13 +147,13 @@ func Paginate(size int, cookie []byte) Control {
 	var e ber.Encoder
 	e.Encode(msg)
 
-	return createControl(CtrlPaginateOID, e.Bytes(), false)
+	return CreateControl(CtrlPaginateOID, e.Bytes(), false)
 }
 
 func Assert(filter Filter) Control {
 	var e ber.Encoder
 	e.Encode(filter)
-	return createControl(CtrlAssertionOID, e.Bytes(), true)
+	return CreateControl(CtrlAssertionOID, e.Bytes(), true)
 }
 
 func PreRead(attrs []string) Control {
@@ -123,7 +165,7 @@ func PreRead(attrs []string) Control {
 		as = append(as, []byte(a))
 	}
 	e.Encode(as)
-	return createControl(CtrlPreReadOID, e.Bytes(), false)
+	return CreateControl(CtrlPreReadOID, e.Bytes(), false)
 }
 
 func PostRead(attrs []string) Control {
@@ -135,10 +177,10 @@ func PostRead(attrs []string) Control {
 		as = append(as, []byte(a))
 	}
 	e.Encode(as)
-	return createControl(CtrlPostReadOID, e.Bytes(), false)
+	return CreateControl(CtrlPostReadOID, e.Bytes(), false)
 }
 
-func createControl(oid string, value []byte, critical bool) Control {
+func CreateControl(oid string, value []byte, critical bool) Control {
 	return Control{
 		OID:      oid,
 		Critical: critical,

@@ -349,13 +349,13 @@ func (c *Client) Compare(dn string, ava AttributeAssertion, controls ...Control)
 	return res.Code == CompareTrue, values, err
 }
 
-func (c *Client) Abandon(msgid int, controls ...Control) error {
-	return nil
-}
-
-func (c *Client) Cancel(msgid int, controls ...Control) error {
-	return nil
-}
+// func (c *Client) Abandon(msgid int, controls ...Control) error {
+// 	return nil
+// }
+//
+// func (c *Client) Cancel(msgid int, controls ...Control) error {
+// 	return nil
+// }
 
 func (c *Client) executeExtended(msg interface{}, controls []Control) (extendedResponse, []ControlValue, error) {
 	c.mu.Lock()
@@ -386,7 +386,7 @@ func (c *Client) withTransaction(app uint64) (Control, bool) {
 	default:
 		return Control{}, false
 	}
-	return createControl(CtrlTransactionOID, c.tx, true), true
+	return CreateControl(CtrlTransactionOID, c.tx, true), true
 }
 
 func (c *Client) execute(msg interface{}, app uint64, controls []Control) ([]ControlValue, error) {
