@@ -531,6 +531,11 @@ func (c *Client) executeSearch(body []byte) ([]Entry, []ControlValue, error) {
 				}
 				es = append(es, e)
 			case ldapSearchResRef:
+				var es []string
+				if err := msg.Decode(es); err != nil {
+					return nil, nil, err
+				}
+				_ = es
 			default:
 				return nil, nil, fmt.Errorf("unexpected response code (%02x)!", tag)
 			}
